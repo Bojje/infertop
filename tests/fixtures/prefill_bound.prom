@@ -1,0 +1,24 @@
+# RAG-shaped traffic: huge prompts and short completions.
+vllm:num_requests_running{model_name="Qwen/Qwen3-0.6B"} 6
+vllm:num_requests_waiting{model_name="Qwen/Qwen3-0.6B"} 0
+vllm:kv_cache_usage_perc{model_name="Qwen/Qwen3-0.6B"} 0.70
+vllm:num_preemptions_total{model_name="Qwen/Qwen3-0.6B"} 0
+vllm:request_prompt_tokens_bucket{le="1024"} 1
+vllm:request_prompt_tokens_bucket{le="2048"} 4
+vllm:request_prompt_tokens_bucket{le="4096"} 12
+vllm:request_prompt_tokens_bucket{le="8192"} 20
+vllm:request_prompt_tokens_bucket{le="+Inf"} 20
+vllm:request_prompt_tokens_sum 96256
+vllm:request_prompt_tokens_count 20
+vllm:request_generation_tokens_bucket{le="32"} 5
+vllm:request_generation_tokens_bucket{le="64"} 15
+vllm:request_generation_tokens_bucket{le="128"} 20
+vllm:request_generation_tokens_bucket{le="+Inf"} 20
+vllm:request_generation_tokens_sum 1120
+vllm:request_generation_tokens_count 20
+vllm:request_prefill_time_seconds_bucket{le="0.5"} 2
+vllm:request_prefill_time_seconds_bucket{le="1"} 7
+vllm:request_prefill_time_seconds_bucket{le="2"} 15
+vllm:request_prefill_time_seconds_bucket{le="4"} 20
+vllm:request_prefill_time_seconds_bucket{le="+Inf"} 20
+vllm:request_prefill_time_seconds_count 20

@@ -1,0 +1,24 @@
+# Burst overload: requests accumulate and queue latency grows.
+vllm:num_requests_running{model_name="Qwen/Qwen3-0.6B"} 8
+vllm:num_requests_waiting{model_name="Qwen/Qwen3-0.6B"} 24
+vllm:kv_cache_usage_perc{model_name="Qwen/Qwen3-0.6B"} 0.75
+vllm:num_preemptions_total{model_name="Qwen/Qwen3-0.6B"} 2
+vllm:request_queue_time_seconds_bucket{le="0.01"} 1
+vllm:request_queue_time_seconds_bucket{le="0.05"} 4
+vllm:request_queue_time_seconds_bucket{le="0.1"} 7
+vllm:request_queue_time_seconds_bucket{le="0.5"} 15
+vllm:request_queue_time_seconds_bucket{le="1"} 17
+vllm:request_queue_time_seconds_bucket{le="2"} 20
+vllm:request_queue_time_seconds_bucket{le="+Inf"} 20
+vllm:request_queue_time_seconds_sum 9.8
+vllm:request_queue_time_seconds_count 20
+vllm:request_prompt_tokens_bucket{le="128"} 8
+vllm:request_prompt_tokens_bucket{le="256"} 16
+vllm:request_prompt_tokens_bucket{le="512"} 20
+vllm:request_prompt_tokens_bucket{le="+Inf"} 20
+vllm:request_prompt_tokens_count 20
+vllm:request_generation_tokens_bucket{le="64"} 7
+vllm:request_generation_tokens_bucket{le="128"} 16
+vllm:request_generation_tokens_bucket{le="256"} 20
+vllm:request_generation_tokens_bucket{le="+Inf"} 20
+vllm:request_generation_tokens_count 20

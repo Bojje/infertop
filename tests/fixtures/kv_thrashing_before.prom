@@ -1,0 +1,2 @@
+# Earlier scrape: preemption counter is 10.
+vllm:num_preemptions_total{model_name="Qwen/Qwen3-0.6B"} 10

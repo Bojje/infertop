@@ -1,0 +1,21 @@
+# Representative healthy vLLM metrics, shaped from the public vLLM metric schema.
+# TYPE vllm:num_requests_running gauge
+vllm:num_requests_running{model_name="Qwen/Qwen3-0.6B"} 4
+vllm:num_requests_waiting{model_name="Qwen/Qwen3-0.6B"} 0
+vllm:kv_cache_usage_perc{model_name="Qwen/Qwen3-0.6B"} 0.42
+vllm:num_preemptions_total{model_name="Qwen/Qwen3-0.6B"} 0
+vllm:request_prompt_tokens_bucket{le="64"} 5
+vllm:request_prompt_tokens_bucket{le="128"} 12
+vllm:request_prompt_tokens_bucket{le="256"} 20
+vllm:request_prompt_tokens_bucket{le="512"} 24
+vllm:request_prompt_tokens_bucket{le="1024"} 25
+vllm:request_prompt_tokens_bucket{le="+Inf"} 25
+vllm:request_prompt_tokens_sum 6200
+vllm:request_prompt_tokens_count 25
+vllm:request_generation_tokens_bucket{le="32"} 4
+vllm:request_generation_tokens_bucket{le="64"} 12
+vllm:request_generation_tokens_bucket{le="128"} 22
+vllm:request_generation_tokens_bucket{le="256"} 25
+vllm:request_generation_tokens_bucket{le="+Inf"} 25
+vllm:request_generation_tokens_sum 2500
+vllm:request_generation_tokens_count 25
