@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from infertop.cli import main
+import pytest
+
+from infertop.cli import diagnosis_exit_code, main
 from infertop.collector import collect_files
 from infertop.probe import ProbeResult, ProbeTiming, RequestMetrics
+from infertop.rules import Finding, Severity
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -31,6 +34,57 @@ def test_diagnose_fixture_prints_ranked_report(capsys) -> None:
     assert "Preemptions: +7 over 10.0s (0.70/s)" in output
 
 
+def _finding(severity: Severity) -> Finding:
+    return Finding(
+        rule_id="TEST",
+        title="Test",
+        severity=severity,
+        score=1,
+        summary="Test",
+        evidence=("Test",),
+        remediations=("Test",),
+    )
+
+
+@pytest.mark.parametrize(
+    ("fail_on", "severity", "expected"),
+    (
+        (None, Severity.CRITICAL, 0),
+        ("critical", Severity.CRITICAL, 1),
+        ("critical", Severity.WARNING, 0),
+        ("warning", Severity.CRITICAL, 1),
+        ("warning", Severity.WARNING, 1),
+        ("warning", Severity.INFO, 0),
+        ("info", Severity.INFO, 1),
+        ("info", Severity.HEALTHY, 0),
+    ),
+)
+def test_diagnosis_exit_code_policy(
+    fail_on: str | None,
+    severity: Severity,
+    expected: int,
+) -> None:
+    assert diagnosis_exit_code((_finding(severity),), fail_on) == expected
+
+
+def test_fail_on_critical_returns_one_after_printing_report(capsys) -> None:
+    exit_code = main(
+        [
+            "diagnose",
+            str(FIXTURES / "kv_thrashing.prom"),
+            "--previous",
+            str(FIXTURES / "kv_thrashing_before.prom"),
+            "--interval",
+            "10",
+            "--fail-on",
+            "critical",
+        ]
+    )
+
+    assert exit_code == 1
+    assert "R3_KV_THRASHING" in capsys.readouterr().out
+
+
 def test_json_report_is_machine_readable(capsys) -> None:
     exit_code = main(["diagnose", str(FIXTURES / "healthy.prom"), "--json"])
 
@@ -42,6 +96,44 @@ def test_json_report_is_machine_readable(capsys) -> None:
     assert payload["coverage"]["covered_count"] == 2
     assert payload["coverage"]["health_verdict_supported"] is False
     assert payload["findings"][0]["rule_id"] == "INCONCLUSIVE"
+
+
+def test_fail_on_info_makes_inconclusive_json_actionable(capsys) -> None:
+    exit_code = main(
+        [
+            "diagnose",
+            str(FIXTURES / "sparse_vllm.prom"),
+            "--previous",
+            str(FIXTURES / "sparse_vllm_before.prom"),
+            "--interval",
+            "10",
+            "--json",
+            "--fail-on",
+            "info",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["findings"][0]["rule_id"] == "INCONCLUSIVE"
+
+
+def test_complete_healthy_report_clears_strict_threshold(capsys) -> None:
+    exit_code = main(
+        [
+            "diagnose",
+            str(FIXTURES / "healthy.prom"),
+            "--previous",
+            str(FIXTURES / "healthy_before.prom"),
+            "--interval",
+            "10",
+            "--fail-on",
+            "info",
+        ]
+    )
+
+    assert exit_code == 0
+    assert "[HEALTHY]" in capsys.readouterr().out
 
 
 def test_probe_command_prints_per_request_phase_verdict(capsys, monkeypatch) -> None:

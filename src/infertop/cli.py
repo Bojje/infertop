@@ -12,7 +12,14 @@ from infertop.collector import CollectionError, collect_endpoint, collect_files
 from infertop.probe import ProbeError, probe_endpoint
 from infertop.prometheus import MetricsParseError
 from infertop.report import render_json, render_probe_json, render_probe_text, render_text
-from infertop.rules import diagnose
+from infertop.rules import Finding, Severity, diagnose
+
+_SEVERITY_RANK = {
+    Severity.HEALTHY: 0,
+    Severity.INFO: 1,
+    Severity.WARNING: 2,
+    Severity.CRITICAL: 3,
+}
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -48,6 +55,11 @@ def _parser() -> argparse.ArgumentParser:
         "--nvml",
         action="store_true",
         help="fuse read-only local NVIDIA telemetry (requires infertop[nvml])",
+    )
+    diagnose_parser.add_argument(
+        "--fail-on",
+        choices=("info", "warning", "critical"),
+        help="exit 1 when a finding is at or above this severity (default: report only)",
     )
     diagnose_parser.add_argument("--json", action="store_true", help="emit JSON")
     probe_parser = subparsers.add_parser(
@@ -110,7 +122,19 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_diagnose(args: argparse.Namespace) -> str:
+def diagnosis_exit_code(
+    findings: tuple[Finding, ...],
+    fail_on: str | None,
+) -> int:
+    """Return 1 when any finding meets an explicitly selected severity threshold."""
+
+    if fail_on is None:
+        return 0
+    threshold = _SEVERITY_RANK[Severity(fail_on)]
+    return int(any(_SEVERITY_RANK[finding.severity] >= threshold for finding in findings))
+
+
+def _run_diagnose(args: argparse.Namespace) -> tuple[str, int]:
     if args.target.startswith(("http://", "https://")):
         if args.previous is not None:
             raise CollectionError("--previous is only valid with a metrics file")
@@ -130,7 +154,8 @@ def _run_diagnose(args: argparse.Namespace) -> str:
             interval_seconds=args.interval,
         )
     findings = diagnose(observation)
-    return render_json(observation, findings) if args.json else render_text(observation, findings)
+    output = render_json(observation, findings) if args.json else render_text(observation, findings)
+    return output, diagnosis_exit_code(findings, args.fail_on)
 
 
 def _run_probe(args: argparse.Namespace) -> str:
@@ -166,9 +191,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "watch":
             _run_watch(args)
             return 0
-        output = _run_diagnose(args) if args.command == "diagnose" else _run_probe(args)
+        if args.command == "diagnose":
+            output, exit_code = _run_diagnose(args)
+        else:
+            output = _run_probe(args)
+            exit_code = 0
         print(output)
-        return 0
+        return exit_code
     except (
         CollectionError,
         MetricsParseError,
