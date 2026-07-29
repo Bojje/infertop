@@ -25,6 +25,7 @@ def test_diagnose_fixture_prints_ranked_report(capsys) -> None:
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "Engine: vllm" in output
+    assert "Coverage:" in output
     assert "1. CRITICAL [R3_KV_THRASHING]" in output
     assert "KV cache usage: 97.0%" in output
     assert "Preemptions: +7 over 10.0s (0.70/s)" in output
@@ -38,7 +39,9 @@ def test_json_report_is_machine_readable(capsys) -> None:
     assert payload["schema_version"] == 1
     assert payload["engine"] == "vllm"
     assert payload["sample_count"] == 1
-    assert payload["findings"][0]["rule_id"] == "HEALTHY"
+    assert payload["coverage"]["covered_count"] == 2
+    assert payload["coverage"]["health_verdict_supported"] is False
+    assert payload["findings"][0]["rule_id"] == "INCONCLUSIVE"
 
 
 def test_probe_command_prints_per_request_phase_verdict(capsys, monkeypatch) -> None:

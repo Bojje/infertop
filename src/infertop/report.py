@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 
 from infertop.probe import ProbeResult
-from infertop.rules import Finding
+from infertop.rules import Finding, assess_diagnostic_coverage
 from infertop.schema import InferenceObservation
 
 
@@ -28,6 +28,7 @@ def _gpu_summary(observation: InferenceObservation) -> list[str]:
 
 
 def render_text(observation: InferenceObservation, findings: tuple[Finding, ...]) -> str:
+    coverage = assess_diagnostic_coverage(observation)
     interval = observation.interval_seconds
     sample_summary = (
         f"{interval:.1f}s across {observation.sample_count} samples"
@@ -39,7 +40,15 @@ def render_text(observation: InferenceObservation, findings: tuple[Finding, ...]
         f"Engine: {observation.current.engine}",
         f"Source: {observation.current.source}",
         f"Observed: {sample_summary}",
+        f"Coverage: {coverage.covered_count}/{coverage.total_count} core rules fully covered",
     ]
+    if coverage.blocked_rules:
+        lines.append(
+            "Blocked: "
+            + "; ".join(
+                f"{gap.rule_id} ({', '.join(gap.reasons)})" for gap in coverage.blocked_rules
+            )
+        )
     if observation.current.gpus:
         lines.extend(("Hardware: local NVML", *_gpu_summary(observation)))
     lines.append("")
@@ -59,6 +68,7 @@ def render_text(observation: InferenceObservation, findings: tuple[Finding, ...]
 
 
 def render_json(observation: InferenceObservation, findings: tuple[Finding, ...]) -> str:
+    coverage = assess_diagnostic_coverage(observation)
     gpus = [
         {
             **asdict(gpu),
@@ -73,6 +83,13 @@ def render_json(observation: InferenceObservation, findings: tuple[Finding, ...]
         "source": observation.current.source,
         "sample_count": observation.sample_count,
         "interval_seconds": observation.interval_seconds,
+        "coverage": {
+            "covered_count": coverage.covered_count,
+            "total_count": coverage.total_count,
+            "covered_rules": coverage.covered_rules,
+            "blocked_rules": [asdict(gap) for gap in coverage.blocked_rules],
+            "health_verdict_supported": coverage.health_verdict_supported,
+        },
         "hardware": {"source": "local_nvml", "gpus": gpus} if gpus else None,
         "findings": [asdict(finding) for finding in findings],
     }
