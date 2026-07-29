@@ -1,0 +1,6 @@
+# Synthetic representative vLLM metrics: flat running batch with persistent waiting.
+vllm:num_requests_running 8
+vllm:num_requests_waiting 5
+vllm:kv_cache_usage_perc 0.70
+vllm:prompt_tokens_total 200
+vllm:generation_tokens_total 400

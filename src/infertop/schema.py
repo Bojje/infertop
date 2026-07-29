@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 from math import inf, isfinite
 
 
@@ -110,17 +111,32 @@ class InferenceObservation:
 
     current: InferenceSnapshot
     previous: InferenceSnapshot | None = None
+    intermediate: tuple[InferenceSnapshot, ...] = ()
     interval_seconds: float | None = None
 
-    def _counter_delta(self, name: str) -> float | None:
+    @property
+    def snapshots(self) -> tuple[InferenceSnapshot, ...]:
         if self.previous is None:
+            return (self.current,)
+        return (self.previous, *self.intermediate, self.current)
+
+    @property
+    def sample_count(self) -> int:
+        return len(self.snapshots)
+
+    def _counter_delta(self, name: str) -> float | None:
+        snapshots = self.snapshots
+        if len(snapshots) < 2:
             return None
-        before = getattr(self.previous, name)
-        after = getattr(self.current, name)
-        if before is None or after is None:
+        values = tuple(getattr(snapshot, name) for snapshot in snapshots)
+        if any(value is None for value in values):
             return None
-        # A lower value means the process restarted; the new counter is the delta.
-        return after - before if after >= before else after
+        # A lower adjacent value means the process restarted; the new counter is
+        # the increment for that segment. Intermediates let us notice resets that
+        # would be hidden by comparing only the first and last scrape.
+        return sum(
+            after - before if after >= before else after for before, after in pairwise(values)
+        )
 
     def _distribution_since(self, name: str) -> Distribution | None:
         current = getattr(self.current, name)
@@ -135,11 +151,35 @@ class InferenceObservation:
 
     @property
     def preemptions_per_second(self) -> float | None:
-        delta = self.preemptions_delta
+        return self._counter_rate("preemptions_total")
+
+    def _counter_rate(self, name: str) -> float | None:
+        delta = self._counter_delta(name)
         interval = self.interval_seconds
         if delta is None or interval is None or interval <= 0 or not isfinite(interval):
             return None
         return delta / interval
+
+    @property
+    def prompt_tokens_per_second(self) -> float | None:
+        return self._counter_rate("prompt_tokens_total")
+
+    @property
+    def generation_tokens_per_second(self) -> float | None:
+        return self._counter_rate("generation_tokens_total")
+
+    @property
+    def total_tokens_per_second(self) -> float | None:
+        prompt = self.prompt_tokens_per_second
+        generation = self.generation_tokens_per_second
+        if prompt is None and generation is None:
+            return None
+        return (prompt or 0.0) + (generation or 0.0)
+
+    def gauge_values(self, name: str) -> tuple[float, ...]:
+        return tuple(
+            value for snapshot in self.snapshots if (value := getattr(snapshot, name)) is not None
+        )
 
     @property
     def prefix_cache_hit_rate(self) -> float | None:
@@ -151,11 +191,12 @@ class InferenceObservation:
 
     @property
     def waiting_is_sustained(self) -> bool:
-        if self.previous is None:
-            return False
-        current = self.current.requests_waiting
-        previous = self.previous.requests_waiting
-        return current is not None and previous is not None and current > 0 and previous > 0
+        values = self.gauge_values("requests_waiting")
+        return (
+            len(values) == self.sample_count
+            and len(values) >= 2
+            and all(value > 0 for value in values)
+        )
 
     @property
     def end_to_end_latency_seconds(self) -> Distribution | None:

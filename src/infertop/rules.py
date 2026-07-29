@@ -40,6 +40,11 @@ class Thresholds:
     long_prompt_p95_tokens: float = 2048
     long_generation_p95_tokens: float = 512
     sequence_skew_ratio: float = 4.0
+    underfilled_batch_max_requests: float = 2
+    spare_kv_cache_usage: float = 0.50
+    batch_ceiling_min_requests: float = 4
+    batch_stability_ratio: float = 0.10
+    minimum_activity_tokens_per_second: float = 1.0
 
 
 DEFAULT_THRESHOLDS = Thresholds()
@@ -145,7 +150,10 @@ def rule_saturation(
             title="Server is saturated",
             severity=Severity.CRITICAL,
             score=90,
-            summary="Requests stayed queued across both scrapes while KV cache was nearly full.",
+            summary=(
+                "Requests stayed queued throughout the sample window while "
+                "KV cache was nearly full."
+            ),
             evidence=(
                 f"Waiting requests: {previous_waiting:g} -> {waiting:g}",
                 f"Running requests: {running:g}" if running is not None else "Running: unavailable",
@@ -327,6 +335,85 @@ def rule_sequence_lengths(
     return None
 
 
+def rule_batch_efficiency(
+    observation: InferenceObservation,
+    thresholds: Thresholds = DEFAULT_THRESHOLDS,
+) -> Finding | None:
+    """R5: identify conservative batch headroom or a likely concurrency ceiling."""
+
+    if observation.sample_count < 3:
+        return None
+    running = observation.gauge_values("requests_running")
+    waiting = observation.gauge_values("requests_waiting")
+    kv_usage = observation.gauge_values("kv_cache_usage")
+    token_rate = observation.total_tokens_per_second
+    if (
+        len(running) != observation.sample_count
+        or len(waiting) != observation.sample_count
+        or len(kv_usage) != observation.sample_count
+        or token_rate is None
+        or token_rate < thresholds.minimum_activity_tokens_per_second
+    ):
+        return None
+    prompt_rate = observation.prompt_tokens_per_second or 0.0
+    generation_rate = observation.generation_tokens_per_second or 0.0
+    running_average = sum(running) / len(running)
+    running_spread = max(running) - min(running)
+    stable_tolerance = max(1.0, running_average * thresholds.batch_stability_ratio)
+    if (
+        all(value > 0 for value in waiting)
+        and min(running) >= thresholds.batch_ceiling_min_requests
+        and running_spread <= stable_tolerance
+    ):
+        return Finding(
+            rule_id="R5_CONCURRENCY_CEILING",
+            title="Scheduler appears pinned at a concurrency ceiling",
+            severity=Severity.WARNING,
+            score=58,
+            summary="The running batch stayed flat while waiting work persisted.",
+            evidence=(
+                f"Running requests across {len(running)} samples: "
+                + " -> ".join(f"{value:g}" for value in running),
+                "Waiting requests: " + " -> ".join(f"{value:g}" for value in waiting),
+                f"Prompt/generation throughput: {prompt_rate:.1f}/{generation_rate:.1f} tokens/s",
+                f"KV cache range: {min(kv_usage):.1%}-{max(kv_usage):.1%}",
+            ),
+            remediations=(
+                "Compare the flat running batch with configured --max-num-seqs.",
+                "Raise --max-num-seqs only if KV headroom and latency SLOs permit it.",
+                "Add replicas when the waiting queue persists at the safe concurrency limit.",
+            ),
+        )
+    if (
+        max(running) <= thresholds.underfilled_batch_max_requests
+        and all(value == 0 for value in waiting)
+        and max(kv_usage) < thresholds.spare_kv_cache_usage
+    ):
+        return Finding(
+            rule_id="R5_BATCH_HEADROOM",
+            title="Batch has substantial unused headroom",
+            severity=Severity.INFO,
+            score=20,
+            summary="Active traffic is using tiny batches while KV cache remains mostly free.",
+            evidence=(
+                f"Running requests across {len(running)} samples: "
+                + " -> ".join(f"{value:g}" for value in running),
+                "Waiting requests: 0 throughout the observation",
+                (
+                    f"KV cache max: {max(kv_usage):.1%} "
+                    f"(headroom threshold: < {thresholds.spare_kv_cache_usage:.1%})"
+                ),
+                f"Prompt/generation throughput: {prompt_rate:.1f}/{generation_rate:.1f} tokens/s",
+            ),
+            remediations=(
+                "If throughput matters, increase client concurrency gradually.",
+                "Do nothing if this is latency-sensitive traffic with intentionally low demand.",
+                "Re-run diagnose under representative peak load before changing server flags.",
+            ),
+        )
+    return None
+
+
 # Metadata makes required inputs inspectable while evaluators remain ordinary pure functions.
 RULES = (
     Rule(
@@ -354,6 +441,17 @@ RULES = (
         rule_kv_cache_health,
     ),
     Rule("R4", ("prompt_tokens", "generation_tokens"), rule_sequence_lengths),
+    Rule(
+        "R5",
+        (
+            "requests_running",
+            "requests_waiting",
+            "kv_cache_usage",
+            "prompt_tokens_total",
+            "generation_tokens_total",
+        ),
+        rule_batch_efficiency,
+    ),
 )
 
 
@@ -368,7 +466,7 @@ def diagnose(
     ]
     if not findings:
         prefix_hit_rate = observation.prefix_cache_hit_rate
-        evidence = ["No R1-R4 threshold was crossed."]
+        evidence = ["No R1-R5 threshold was crossed."]
         if prefix_hit_rate is not None:
             evidence.append(f"Prefix cache hit rate: {prefix_hit_rate:.1%}")
         findings.append(

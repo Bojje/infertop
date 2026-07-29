@@ -9,7 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from infertop.normalize import normalize_vllm
-from infertop.schema import InferenceObservation
+from infertop.schema import InferenceObservation, InferenceSnapshot
 
 
 class CollectionError(RuntimeError):
@@ -26,32 +26,87 @@ def metrics_url(endpoint: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, ""))
 
 
+def _scrape(client: httpx.Client, url: str) -> InferenceSnapshot:
+    response = client.get(url)
+    response.raise_for_status()
+    return normalize_vllm(response.text, source=url, captured_at=time.monotonic())
+
+
+def scrape_endpoint(
+    endpoint: str,
+    *,
+    timeout_seconds: float = 5.0,
+    transport: httpx.BaseTransport | None = None,
+) -> InferenceSnapshot:
+    """Read and normalize exactly one metrics scrape."""
+
+    url = metrics_url(endpoint)
+    try:
+        with httpx.Client(
+            timeout=timeout_seconds,
+            follow_redirects=False,
+            transport=transport,
+        ) as client:
+            return _scrape(client, url)
+    except httpx.HTTPError as exc:
+        raise CollectionError(f"could not read {url}: {exc}") from exc
+
+
+async def scrape_endpoint_async(
+    endpoint: str,
+    *,
+    timeout_seconds: float = 5.0,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> InferenceSnapshot:
+    """Asynchronously read and normalize exactly one metrics scrape."""
+
+    url = metrics_url(endpoint)
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout_seconds,
+            follow_redirects=False,
+            transport=transport,
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return normalize_vllm(response.text, source=url, captured_at=time.monotonic())
+    except httpx.HTTPError as exc:
+        raise CollectionError(f"could not read {url}: {exc}") from exc
+
+
 def collect_endpoint(
     endpoint: str,
     *,
     interval_seconds: float = 1.0,
     timeout_seconds: float = 5.0,
+    sample_count: int = 3,
+    transport: httpx.BaseTransport | None = None,
 ) -> InferenceObservation:
-    """GET two scrapes without redirects or mutation, then normalize them."""
+    """GET multiple scrapes without redirects or mutation, then normalize them."""
 
     if interval_seconds <= 0:
         raise CollectionError("interval must be greater than zero")
+    if sample_count < 2:
+        raise CollectionError("sample_count must be at least two")
     url = metrics_url(endpoint)
+    snapshots = []
     try:
-        with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as client:
-            first_response = client.get(url)
-            first_response.raise_for_status()
-            first_time = time.monotonic()
-            time.sleep(interval_seconds)
-            second_response = client.get(url)
-            second_response.raise_for_status()
-            second_time = time.monotonic()
+        with httpx.Client(
+            timeout=timeout_seconds,
+            follow_redirects=False,
+            transport=transport,
+        ) as client:
+            for index in range(sample_count):
+                snapshots.append(_scrape(client, url))
+                if index < sample_count - 1:
+                    time.sleep(interval_seconds)
     except httpx.HTTPError as exc:
         raise CollectionError(f"could not read {url}: {exc}") from exc
     return InferenceObservation(
-        current=normalize_vllm(second_response.text, source=url, captured_at=second_time),
-        previous=normalize_vllm(first_response.text, source=url, captured_at=first_time),
-        interval_seconds=second_time - first_time,
+        current=snapshots[-1],
+        previous=snapshots[0],
+        intermediate=tuple(snapshots[1:-1]),
+        interval_seconds=snapshots[-1].captured_at - snapshots[0].captured_at,
     )
 
 
@@ -63,16 +118,35 @@ def collect_files(
 ) -> InferenceObservation:
     """Load one or two saved metrics scrapes."""
 
-    current = normalize_vllm(current_path.read_text(), source=str(current_path), captured_at=1.0)
-    previous = None
-    if previous_path is not None:
-        previous = normalize_vllm(
-            previous_path.read_text(),
-            source=str(previous_path),
-            captured_at=0.0,
+    paths = (previous_path, current_path) if previous_path is not None else (current_path,)
+    return collect_file_series(paths, interval_seconds=interval_seconds)
+
+
+def collect_file_series(
+    paths: tuple[Path, ...],
+    *,
+    interval_seconds: float | None,
+) -> InferenceObservation:
+    """Load an ordered series of saved scrapes for fixture-driven diagnosis."""
+
+    if not paths:
+        raise CollectionError("at least one metrics file is required")
+    if len(paths) > 1 and (interval_seconds is None or interval_seconds <= 0):
+        raise CollectionError("a positive interval is required for multiple metrics files")
+    step = interval_seconds / (len(paths) - 1) if len(paths) > 1 else 0.0
+    snapshots = tuple(
+        normalize_vllm(
+            path.read_text(),
+            source=str(path),
+            captured_at=index * step,
         )
+        for index, path in enumerate(paths)
+    )
+    if len(snapshots) == 1:
+        return InferenceObservation(current=snapshots[0])
     return InferenceObservation(
-        current=current,
-        previous=previous,
-        interval_seconds=interval_seconds if previous is not None else None,
+        previous=snapshots[0],
+        intermediate=snapshots[1:-1],
+        current=snapshots[-1],
+        interval_seconds=interval_seconds,
     )

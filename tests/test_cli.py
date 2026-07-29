@@ -34,6 +34,7 @@ def test_json_report_is_machine_readable(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert payload["schema_version"] == 1
+    assert payload["sample_count"] == 1
     assert payload["findings"][0]["rule_id"] == "HEALTHY"
 
 

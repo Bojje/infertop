@@ -7,9 +7,9 @@ slow—without Prometheus, Grafana, an agent, or GPU access.
 uvx infertop diagnose http://localhost:8000
 ```
 
-`infertop` polls `/metrics` twice, converts cumulative counters and histogram buckets into a
-windowed engine-independent observation, and runs deterministic rules. Every finding prints its
-inputs, thresholds, and concrete remediation.
+`infertop` polls `/metrics` across a short sample window, converts cumulative counters and
+histogram buckets into an engine-independent observation, and runs deterministic rules. Every
+finding prints its inputs, thresholds, and concrete remediation.
 
 ## Example
 
@@ -31,6 +31,17 @@ Observed: 5.0s across 2 samples
 ```
 
 Machine-readable output is available with `--json`.
+
+## Live watch
+
+The optional Textual view reruns the same diagnosis engine over a rolling sample window:
+
+```console
+uvx --from "infertop[tui]" infertop watch http://localhost:8000
+```
+
+Press `r` to refresh immediately or `q` to quit. It intentionally renders ranked findings rather
+than a dashboard of unlabeled charts.
 
 ## Active API probe
 
@@ -62,9 +73,10 @@ Per-request timing is a probe result, not a workload-wide verdict. Use represent
 | Rule | Evidence | Verdicts |
 | --- | --- | --- |
 | R1: symptom isolation | E2E, TTFT, and ITL p50/p95 | first-token-bound or all-phases-slow |
-| R2: saturation | running/waiting across two scrapes, KV usage | saturated, compute-bound, or queue unconfirmed |
+| R2: saturation | running/waiting across the sample window, KV usage | saturated, compute-bound, or queue unconfirmed |
 | R3: KV health | KV usage, rising preemptions, prefix hit ratio | thrashing or low headroom |
 | R4: sequence lengths | prompt/output tokens p50/p95 | prefill-bound or decode-bound |
+| R5: batch efficiency | three-sample running/waiting depth, KV headroom, token rates | batch headroom or likely concurrency ceiling |
 
 The starting thresholds live in `Thresholds` and are printed beside evidence. Rules are pure
 functions over `InferenceObservation`, so they can be tested without a GPU.
@@ -79,7 +91,7 @@ uvx --from "infertop[mcp]" infertop-mcp
 
 It exposes:
 
-- `diagnose_endpoint`: read-only; performs two GET scrapes of `/metrics`.
+- `diagnose_endpoint`: read-only; performs repeated GET scrapes of `/metrics`.
 - `probe_inference_endpoint`: active; sends one bounded inference POST and says so in its tool
   description.
 
@@ -125,16 +137,23 @@ uv run --extra mcp python -c \
   "from infertop.mcp_server import create_server; print(create_server().name)"
 ```
 
+To verify the optional Textual view:
+
+```console
+uv sync --extra tui
+uv run --extra tui pytest tests/test_tui.py
+```
+
 ## What it cannot see
 
 - One scrape cannot prove a counter is increasing or a queue is sustained. Live diagnosis takes
-  two samples; offline diagnosis should pass `--previous`.
+  three samples by default; offline diagnosis should pass `--previous`.
 - Aggregate histograms cannot identify periodic ITL spikes or correlate them with individual
   long-prompt arrivals. The active probe sees one request, not historical causality.
 - Metrics explain symptoms exposed by the server, not kernel, network, client, model-quality, or
   GPU-hardware faults.
-- v0.1 normalizes vLLM only. SGLang normalization, R5 batch efficiency, NVML fusion, and historical
-  Prometheus are later slices.
+- v0.1 normalizes vLLM only. SGLang normalization, NVML fusion, and historical Prometheus are
+  later slices.
 - Thresholds are conservative starting points, not universal SLOs or capacity targets.
 
 ## Safety

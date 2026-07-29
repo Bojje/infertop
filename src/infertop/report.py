@@ -13,7 +13,9 @@ from infertop.schema import InferenceObservation
 def render_text(observation: InferenceObservation, findings: tuple[Finding, ...]) -> str:
     interval = observation.interval_seconds
     sample_summary = (
-        f"{interval:.1f}s across 2 samples" if interval is not None else "single snapshot"
+        f"{interval:.1f}s across {observation.sample_count} samples"
+        if interval is not None
+        else "single snapshot"
     )
     lines = [
         "INFERTOP",
@@ -40,6 +42,7 @@ def render_json(observation: InferenceObservation, findings: tuple[Finding, ...]
     payload = {
         "schema_version": 1,
         "source": observation.current.source,
+        "sample_count": observation.sample_count,
         "interval_seconds": observation.interval_seconds,
         "findings": [asdict(finding) for finding in findings],
     }

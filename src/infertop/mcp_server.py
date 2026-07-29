@@ -17,6 +17,7 @@ def diagnose_endpoint_result(
     *,
     interval_seconds: float = 5.0,
     timeout_seconds: float = 5.0,
+    sample_count: int = 3,
 ) -> dict[str, Any]:
     """Return structured deterministic findings from read-only metrics scrapes."""
 
@@ -24,6 +25,7 @@ def diagnose_endpoint_result(
         endpoint,
         interval_seconds=interval_seconds,
         timeout_seconds=timeout_seconds,
+        sample_count=sample_count,
     )
     return json.loads(render_json(observation, diagnose(observation)))
 
@@ -70,13 +72,15 @@ def create_server() -> Any:
         endpoint: str,
         interval_seconds: float = 5.0,
         timeout_seconds: float = 5.0,
+        sample_count: int = 3,
     ) -> dict[str, Any]:
-        """Read /metrics twice and return ranked, evidence-backed findings."""
+        """Read /metrics repeatedly and return ranked, evidence-backed findings."""
 
         return diagnose_endpoint_result(
             endpoint,
             interval_seconds=interval_seconds,
             timeout_seconds=timeout_seconds,
+            sample_count=sample_count,
         )
 
     @server.tool()

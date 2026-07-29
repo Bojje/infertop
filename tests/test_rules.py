@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from infertop.collector import collect_files
-from infertop.rules import diagnose, rule_kv_cache_health
+from infertop.collector import collect_file_series, collect_files
+from infertop.rules import diagnose, rule_batch_efficiency, rule_kv_cache_health
 from infertop.schema import Distribution, InferenceObservation, InferenceSnapshot
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -48,6 +48,18 @@ def test_counter_reset_uses_new_counter_value_as_delta() -> None:
 
     assert observation.preemptions_delta == 3
     assert observation.preemptions_per_second == pytest.approx(0.3)
+
+
+def test_counter_delta_detects_reset_inside_multi_sample_window() -> None:
+    observation = InferenceObservation(
+        previous=InferenceSnapshot(source="fixture", captured_at=0, preemptions_total=100),
+        intermediate=(InferenceSnapshot(source="fixture", captured_at=5, preemptions_total=2),),
+        current=InferenceSnapshot(source="fixture", captured_at=10, preemptions_total=150),
+        interval_seconds=10,
+    )
+
+    assert observation.preemptions_delta == 150
+    assert observation.preemptions_per_second == pytest.approx(15)
 
 
 def test_histogram_quantiles_use_only_samples_between_scrapes() -> None:
@@ -98,3 +110,35 @@ def test_prefix_cache_hit_rate_handles_alias_normalized_counter_deltas() -> None
     )
 
     assert observation.prefix_cache_hit_rate == pytest.approx(0.30)
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected"),
+    (
+        ("batch_headroom", "R5_BATCH_HEADROOM"),
+        ("concurrency_ceiling", "R5_CONCURRENCY_CEILING"),
+    ),
+)
+def test_r5_fixture_golden_top_finding(scenario: str, expected: str) -> None:
+    observation = collect_file_series(
+        (
+            FIXTURES / f"{scenario}_before.prom",
+            FIXTURES / f"{scenario}_middle.prom",
+            FIXTURES / f"{scenario}.prom",
+        ),
+        interval_seconds=10,
+    )
+
+    golden = (FIXTURES / f"{scenario}.top").read_text().strip()
+    assert golden == expected
+    assert diagnose(observation)[0].rule_id == golden
+
+
+def test_r5_requires_three_samples() -> None:
+    observation = collect_files(
+        FIXTURES / "batch_headroom.prom",
+        previous_path=FIXTURES / "batch_headroom_before.prom",
+        interval_seconds=10,
+    )
+
+    assert rule_batch_efficiency(observation) is None
