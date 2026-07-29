@@ -23,12 +23,19 @@ classifiers = [
 ]
 dependencies = ["httpx>=0.27,<1"]
 
+[project.urls]
+Homepage = "https://github.com/Bojje/infertop"
+Repository = "https://github.com/Bojje/infertop"
+Issues = "https://github.com/Bojje/infertop/issues"
+
 [project.scripts]
 infertop = "infertop.cli:main"
+infertop-mcp = "infertop.mcp_server:main"
 
 [project.optional-dependencies]
 tui = ["textual>=1.0,<2"]
 nvml = ["nvidia-ml-py>=12"]
+mcp = ["mcp>=1.27,<2"]
 
 [dependency-groups]
 dev = [

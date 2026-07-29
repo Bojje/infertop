@@ -14,12 +14,17 @@ _ALIASES = {
     "waiting": ("vllm:num_requests_waiting",),
     "kv_cache": ("vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc"),
     "preemptions": ("vllm:num_preemptions_total",),
+    "prefix_queries": ("vllm:prefix_cache_queries_total", "vllm:prefix_cache_queries"),
+    "prefix_hits": ("vllm:prefix_cache_hits_total", "vllm:prefix_cache_hits"),
+    "prompt_total": ("vllm:prompt_tokens_total",),
+    "generation_total": ("vllm:generation_tokens_total",),
+    "e2e": ("vllm:e2e_request_latency_seconds",),
     "queue": ("vllm:request_queue_time_seconds",),
     "ttft": ("vllm:time_to_first_token_seconds",),
     "tpot": (
+        "vllm:inter_token_latency_seconds",
         "vllm:request_time_per_output_token_seconds",
         "vllm:time_per_output_token_seconds",
-        "vllm:inter_token_latency_seconds",
     ),
     "prompt": ("vllm:request_prompt_tokens", "vllm:prompt_tokens"),
     "generation": ("vllm:request_generation_tokens", "vllm:generation_tokens"),
@@ -42,26 +47,6 @@ def _aggregate(samples: tuple[Sample, ...], aliases: tuple[str, ...], mode: str)
     return None
 
 
-def _quantile(buckets: list[tuple[float, float]], count: float, q: float) -> float | None:
-    if count <= 0 or not buckets:
-        return None
-    target = q * count
-    lower_bound = 0.0
-    lower_count = 0.0
-    for upper_bound, cumulative_count in sorted(buckets):
-        if cumulative_count >= target:
-            if math.isinf(upper_bound):
-                return lower_bound
-            bucket_count = cumulative_count - lower_count
-            if bucket_count <= 0:
-                return upper_bound
-            position = (target - lower_count) / bucket_count
-            return lower_bound + (upper_bound - lower_bound) * position
-        lower_bound = upper_bound
-        lower_count = cumulative_count
-    return None
-
-
 def _histogram(samples: tuple[Sample, ...], aliases: tuple[str, ...]) -> Distribution | None:
     for base_name in aliases:
         bucket_samples = [sample for sample in samples if sample.name == f"{base_name}_bucket"]
@@ -78,14 +63,10 @@ def _histogram(samples: tuple[Sample, ...], aliases: tuple[str, ...]) -> Distrib
         sum_values = _values(samples, f"{base_name}_sum")
         count = sum(count_values) if count_values else buckets_by_bound.get(math.inf, 0.0)
         total = sum(sum_values) if sum_values else None
-        buckets = list(buckets_by_bound.items())
-        return Distribution(
+        return Distribution.from_buckets(
+            tuple(buckets_by_bound.items()),
             count=count,
             total=total,
-            p50=_quantile(buckets, count, 0.50),
-            p90=_quantile(buckets, count, 0.90),
-            p95=_quantile(buckets, count, 0.95),
-            p99=_quantile(buckets, count, 0.99),
         )
     return None
 
@@ -106,6 +87,11 @@ def normalize_vllm(
         requests_waiting=_aggregate(samples, _ALIASES["waiting"], "sum"),
         kv_cache_usage=_aggregate(samples, _ALIASES["kv_cache"], "max"),
         preemptions_total=_aggregate(samples, _ALIASES["preemptions"], "sum"),
+        prefix_cache_queries_total=_aggregate(samples, _ALIASES["prefix_queries"], "sum"),
+        prefix_cache_hits_total=_aggregate(samples, _ALIASES["prefix_hits"], "sum"),
+        prompt_tokens_total=_aggregate(samples, _ALIASES["prompt_total"], "sum"),
+        generation_tokens_total=_aggregate(samples, _ALIASES["generation_total"], "sum"),
+        end_to_end_latency_seconds=_histogram(samples, _ALIASES["e2e"]),
         queue_latency_seconds=_histogram(samples, _ALIASES["queue"]),
         time_to_first_token_seconds=_histogram(samples, _ALIASES["ttft"]),
         time_per_output_token_seconds=_histogram(samples, _ALIASES["tpot"]),

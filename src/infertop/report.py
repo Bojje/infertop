@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
+from infertop.probe import ProbeResult
 from infertop.rules import Finding
 from infertop.schema import InferenceObservation
 
@@ -43,3 +44,29 @@ def render_json(observation: InferenceObservation, findings: tuple[Finding, ...]
         "findings": [asdict(finding) for finding in findings],
     }
     return json.dumps(payload, indent=2)
+
+
+def render_probe_text(result: ProbeResult) -> str:
+    lines = [
+        "INFERTOP ACTIVE PROBE",
+        f"Endpoint: {result.endpoint}",
+        f"Model: {result.model}",
+        f"Request: {result.request_id or 'unavailable'}",
+        (
+            f"Tokens: prompt={result.prompt_tokens if result.prompt_tokens is not None else '?'} "
+            "completion="
+            f"{result.completion_tokens if result.completion_tokens is not None else '?'}"
+        ),
+        f"Dominant phase: {result.dominant_phase or 'unavailable'}",
+        "",
+        result.verdict,
+        "Evidence:",
+        *(f"- {item}" for item in result.evidence),
+        "Remediation:",
+        *(f"- {item}" for item in result.remediations),
+    ]
+    return "\n".join(lines)
+
+
+def render_probe_json(result: ProbeResult) -> str:
+    return json.dumps({"schema_version": 1, "probe": result.to_dict()}, indent=2)
