@@ -107,6 +107,7 @@ def render_probe_text(result: ProbeResult) -> str:
             "completion="
             f"{result.completion_tokens if result.completion_tokens is not None else '?'}"
         ),
+        f"Completion HTTP round trip: {result.timing.client_round_trip_ms:.1f}ms",
         f"Dominant phase: {result.dominant_phase or 'unavailable'}",
         "",
         result.verdict,
