@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from infertop.hardware import collect_nvml_gpus
 from infertop.normalize import normalize_metrics
 from infertop.schema import InferenceObservation, InferenceSnapshot
 
@@ -26,16 +28,23 @@ def metrics_url(endpoint: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, ""))
 
 
-def _scrape(client: httpx.Client, url: str) -> InferenceSnapshot:
+def _scrape(
+    client: httpx.Client,
+    url: str,
+    *,
+    include_nvml: bool = False,
+) -> InferenceSnapshot:
     response = client.get(url)
     response.raise_for_status()
-    return normalize_metrics(response.text, source=url, captured_at=time.monotonic())
+    snapshot = normalize_metrics(response.text, source=url, captured_at=time.monotonic())
+    return replace(snapshot, gpus=collect_nvml_gpus()) if include_nvml else snapshot
 
 
 def scrape_endpoint(
     endpoint: str,
     *,
     timeout_seconds: float = 5.0,
+    include_nvml: bool = False,
     transport: httpx.BaseTransport | None = None,
 ) -> InferenceSnapshot:
     """Read and normalize exactly one metrics scrape."""
@@ -47,7 +56,7 @@ def scrape_endpoint(
             follow_redirects=False,
             transport=transport,
         ) as client:
-            return _scrape(client, url)
+            return _scrape(client, url, include_nvml=include_nvml)
     except httpx.HTTPError as exc:
         raise CollectionError(f"could not read {url}: {exc}") from exc
 
@@ -56,6 +65,7 @@ async def scrape_endpoint_async(
     endpoint: str,
     *,
     timeout_seconds: float = 5.0,
+    include_nvml: bool = False,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> InferenceSnapshot:
     """Asynchronously read and normalize exactly one metrics scrape."""
@@ -69,7 +79,8 @@ async def scrape_endpoint_async(
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
-            return normalize_metrics(response.text, source=url, captured_at=time.monotonic())
+            snapshot = normalize_metrics(response.text, source=url, captured_at=time.monotonic())
+            return replace(snapshot, gpus=collect_nvml_gpus()) if include_nvml else snapshot
     except httpx.HTTPError as exc:
         raise CollectionError(f"could not read {url}: {exc}") from exc
 
@@ -80,6 +91,7 @@ def collect_endpoint(
     interval_seconds: float = 1.0,
     timeout_seconds: float = 5.0,
     sample_count: int = 3,
+    include_nvml: bool = False,
     transport: httpx.BaseTransport | None = None,
 ) -> InferenceObservation:
     """GET multiple scrapes without redirects or mutation, then normalize them."""
@@ -97,7 +109,7 @@ def collect_endpoint(
             transport=transport,
         ) as client:
             for index in range(sample_count):
-                snapshots.append(_scrape(client, url))
+                snapshots.append(_scrape(client, url, include_nvml=include_nvml))
                 if index < sample_count - 1:
                     time.sleep(interval_seconds)
     except httpx.HTTPError as exc:

@@ -44,6 +44,11 @@ def _parser() -> argparse.ArgumentParser:
         default=5.0,
         help="HTTP timeout in seconds (default: 5)",
     )
+    diagnose_parser.add_argument(
+        "--nvml",
+        action="store_true",
+        help="fuse read-only local NVIDIA telemetry (requires infertop[nvml])",
+    )
     diagnose_parser.add_argument("--json", action="store_true", help="emit JSON")
     probe_parser = subparsers.add_parser(
         "probe",
@@ -97,6 +102,11 @@ def _parser() -> argparse.ArgumentParser:
         default=5.0,
         help="HTTP timeout in seconds (default: 5)",
     )
+    watch_parser.add_argument(
+        "--nvml",
+        action="store_true",
+        help="fuse read-only local NVIDIA telemetry (requires infertop[nvml,tui])",
+    )
     return parser
 
 
@@ -109,8 +119,11 @@ def _run_diagnose(args: argparse.Namespace) -> str:
             interval_seconds=args.interval,
             timeout_seconds=args.timeout,
             sample_count=args.samples,
+            include_nvml=args.nvml,
         )
     else:
+        if args.nvml:
+            raise CollectionError("--nvml is only valid with a live endpoint")
         observation = collect_files(
             Path(args.target),
             previous_path=args.previous,
@@ -143,6 +156,7 @@ def _run_watch(args: argparse.Namespace) -> None:
         interval_seconds=args.interval,
         timeout_seconds=args.timeout,
         sample_count=args.samples,
+        include_nvml=args.nvml,
     )
 
 

@@ -82,12 +82,48 @@ class Distribution:
 
 
 @dataclass(frozen=True)
+class GpuDeviceSnapshot:
+    """Read-only NVML state for one local NVIDIA GPU."""
+
+    index: int
+    name: str
+    uuid: str
+    gpu_utilization: float | None = None
+    memory_io_utilization: float | None = None
+    memory_used_bytes: int | None = None
+    memory_total_bytes: int | None = None
+    power_watts: float | None = None
+    power_limit_watts: float | None = None
+
+    @property
+    def vram_usage(self) -> float | None:
+        if (
+            self.memory_used_bytes is None
+            or self.memory_total_bytes is None
+            or self.memory_total_bytes <= 0
+        ):
+            return None
+        return min(max(self.memory_used_bytes / self.memory_total_bytes, 0.0), 1.0)
+
+    @property
+    def power_ratio(self) -> float | None:
+        if (
+            self.power_watts is None
+            or self.power_limit_watts is None
+            or self.power_limit_watts <= 0
+        ):
+            return None
+        return max(self.power_watts / self.power_limit_watts, 0.0)
+
+
+@dataclass(frozen=True)
 class InferenceSnapshot:
     """Normalized state at one point in time."""
 
     source: str
     captured_at: float
     engine: str = "unknown"
+    gpus: tuple[GpuDeviceSnapshot, ...] = ()
     requests_running: float | None = None
     requests_waiting: float | None = None
     kv_cache_usage: float | None = None
@@ -182,6 +218,18 @@ class InferenceObservation:
         return tuple(
             value for snapshot in self.snapshots if (value := getattr(snapshot, name)) is not None
         )
+
+    def gpu_average_values(self, name: str) -> tuple[float, ...]:
+        """Return one cross-device average for every snapshot with this GPU metric."""
+
+        averages = []
+        for snapshot in self.snapshots:
+            values = tuple(
+                value for gpu in snapshot.gpus if (value := getattr(gpu, name)) is not None
+            )
+            if values:
+                averages.append(sum(values) / len(values))
+        return tuple(averages)
 
     @property
     def prefix_cache_hit_rate(self) -> float | None:

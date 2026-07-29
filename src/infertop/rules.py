@@ -45,6 +45,10 @@ class Thresholds:
     batch_ceiling_min_requests: float = 4
     batch_stability_ratio: float = 0.10
     minimum_activity_tokens_per_second: float = 1.0
+    high_gpu_utilization: float = 0.90
+    high_memory_io_utilization: float = 0.90
+    low_gpu_utilization: float = 0.30
+    low_memory_io_utilization: float = 0.30
 
 
 DEFAULT_THRESHOLDS = Thresholds()
@@ -508,6 +512,128 @@ def rule_batch_efficiency(
     return None
 
 
+def _percentage_range(label: str, values: tuple[float, ...]) -> str:
+    return f"{label}: {min(values):.1%}-{max(values):.1%} across {len(values)} samples"
+
+
+def rule_hardware_correlation(
+    observation: InferenceObservation,
+    thresholds: Thresholds = DEFAULT_THRESHOLDS,
+) -> Finding | None:
+    """R6: correlate sustained local GPU telemetry with engine latency."""
+
+    if observation.sample_count < 2:
+        return None
+    gpu_utilization = observation.gpu_average_values("gpu_utilization")
+    memory_io = observation.gpu_average_values("memory_io_utilization")
+    running = observation.gauge_values("requests_running")
+    if (
+        len(gpu_utilization) != observation.sample_count
+        or len(memory_io) != observation.sample_count
+        or len(running) != observation.sample_count
+        or not all(value > 0 for value in running)
+    ):
+        return None
+
+    ttft = _p95(observation, "time_to_first_token_seconds")
+    itl = _p95(observation, "time_per_output_token_seconds")
+    e2e = _p95(observation, "end_to_end_latency_seconds")
+    vram = observation.gpu_average_values("vram_usage")
+    power = observation.gpu_average_values("power_ratio")
+    device_names = ", ".join(gpu.name for gpu in observation.current.gpus)
+    common_evidence = [
+        f"Local GPUs: {device_names}",
+        _percentage_range("GPU compute utilization", gpu_utilization),
+        _percentage_range("GPU device-memory active time", memory_io),
+    ]
+    if len(vram) == observation.sample_count:
+        common_evidence.append(_percentage_range("VRAM allocated", vram))
+    if len(power) == observation.sample_count:
+        common_evidence.append(_percentage_range("Power draw / enforced limit", power))
+
+    if (
+        itl is not None
+        and itl >= thresholds.high_itl_p95_seconds
+        and all(value >= thresholds.high_memory_io_utilization for value in memory_io)
+    ):
+        return Finding(
+            rule_id="R6_DEVICE_MEMORY_ACTIVITY",
+            title="Slow decode is correlated with sustained device-memory activity",
+            severity=Severity.WARNING,
+            score=64,
+            summary=(
+                "High ITL coincides with sustained device-memory reads or writes. "
+                "This is consistent with, but does not prove, memory-bound decode."
+            ),
+            evidence=(
+                f"ITL p95: {itl:.3f}s (high: >= {thresholds.high_itl_p95_seconds:.3f}s)",
+                *common_evidence,
+            ),
+            remediations=(
+                "Lower output limits or decode concurrency where product behavior permits.",
+                "Benchmark a quantized or smaller model to reduce weight and KV memory traffic.",
+                _engine_text(
+                    observation,
+                    vllm="Evaluate speculative decoding with --speculative-config.",
+                    sglang=(
+                        "Evaluate SGLang speculative decoding, for example "
+                        "--speculative-algorithm EAGLE3."
+                    ),
+                    generic="Evaluate the engine's speculative decoding support.",
+                ),
+            ),
+        )
+
+    if (
+        ttft is not None
+        and ttft >= thresholds.high_ttft_p95_seconds
+        and all(value >= thresholds.high_gpu_utilization for value in gpu_utilization)
+    ):
+        return Finding(
+            rule_id="R6_COMPUTE_PRESSURE",
+            title="High TTFT is correlated with saturated GPU compute",
+            severity=Severity.WARNING,
+            score=63,
+            summary="The local GPUs stayed compute-busy while first-token latency was high.",
+            evidence=(
+                f"TTFT p95: {ttft:.3f}s (high: >= {thresholds.high_ttft_p95_seconds:.3f}s)",
+                *common_evidence,
+            ),
+            remediations=(
+                "Reduce prompt length or retrieved context before changing scheduler limits.",
+                "Benchmark quantized weights or a smaller task model.",
+                "Scale replicas when representative concurrency also produces a waiting queue.",
+            ),
+        )
+
+    if (
+        e2e is not None
+        and e2e >= thresholds.high_e2e_p95_seconds
+        and all(value <= thresholds.low_gpu_utilization for value in gpu_utilization)
+        and all(value <= thresholds.low_memory_io_utilization for value in memory_io)
+    ):
+        return Finding(
+            rule_id="R6_LOW_GPU_ACTIVITY",
+            title="High latency coincides with low local GPU activity",
+            severity=Severity.INFO,
+            score=42,
+            summary=(
+                "The engine reports active requests, but neither compute nor device-memory "
+                "traffic is busy."
+            ),
+            evidence=(
+                f"E2E latency p95: {e2e:.3f}s (high: >= {thresholds.high_e2e_p95_seconds:.3f}s)",
+                *common_evidence,
+            ),
+            remediations=(
+                "Confirm this endpoint is actually served by the local GPUs listed above.",
+                "Inspect CPU tokenization, request preprocessing, networking, and storage stalls.",
+                "Use a profiler only after locating the idle gap outside the engine metrics.",
+            ),
+        )
+    return None
+
+
 # Metadata makes required inputs inspectable while evaluators remain ordinary pure functions.
 RULES = (
     Rule(
@@ -546,6 +672,18 @@ RULES = (
         ),
         rule_batch_efficiency,
     ),
+    Rule(
+        "R6",
+        (
+            "gpus.gpu_utilization",
+            "gpus.memory_io_utilization",
+            "requests_running",
+            "end_to_end_latency_seconds",
+            "time_to_first_token_seconds",
+            "time_per_output_token_seconds",
+        ),
+        rule_hardware_correlation,
+    ),
 )
 
 
@@ -560,7 +698,7 @@ def diagnose(
     ]
     if not findings:
         prefix_hit_rate = observation.prefix_cache_hit_rate
-        evidence = ["No R1-R5 threshold was crossed."]
+        evidence = ["No R1-R6 threshold was crossed."]
         if prefix_hit_rate is not None:
             evidence.append(f"Prefix cache hit rate: {prefix_hit_rate:.1%}")
         findings.append(

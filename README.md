@@ -87,6 +87,23 @@ The normalizer accepts both the current `sglang:` metric namespace and the histo
 form. Request retractions map to the canonical memory-pressure signal, and findings recommend
 SGLang flags such as `--schedule-conservativeness` and `--max-running-requests`.
 
+## Optional local GPU evidence
+
+Explicitly opt in to read-only local NVIDIA telemetry when the endpoint is served by this machine:
+
+```console
+uvx --from "infertop[nvml]" infertop diagnose http://localhost:8000 --nvml
+uvx --from "infertop[nvml,tui]" infertop watch http://localhost:8000 --nvml
+```
+
+Each metrics scrape is paired with local NVML samples for GPU compute utilization, device-memory
+active time, VRAM allocation, and power draw. R6 correlates sustained hardware activity with TTFT,
+ITL, and E2E latency; it does not diagnose from one instantaneous utilization value or claim that
+device-memory active time measures theoretical bandwidth saturation.
+
+`--nvml` is deliberately rejected for saved fixtures. Do not use it against a remote endpoint
+unless that endpoint is actually served by the local GPUs printed in the report.
+
 ## Rules
 
 | Rule | Evidence | Verdicts |
@@ -96,6 +113,7 @@ SGLang flags such as `--schedule-conservativeness` and `--max-running-requests`.
 | R3: KV health | KV usage, rising preemptions, prefix hit ratio | thrashing or low headroom |
 | R4: sequence lengths | prompt/output tokens p50/p95 | prefill-bound or decode-bound |
 | R5: batch efficiency | three-sample running/waiting depth, KV headroom, token rates | batch headroom or likely concurrency ceiling |
+| R6: hardware correlation | sustained local GPU compute/device-memory activity plus latency | compute pressure, likely memory-bound decode, or unexplained GPU idleness |
 
 The starting thresholds live in `Thresholds` and are printed beside evidence. Rules are pure
 functions over `InferenceObservation`, so they can be tested without a GPU.
@@ -110,7 +128,8 @@ uvx --from "infertop[mcp]" infertop-mcp
 
 It exposes:
 
-- `diagnose_endpoint`: read-only; performs repeated GET scrapes of `/metrics`.
+- `diagnose_endpoint`: read-only; performs repeated GET scrapes of `/metrics`. Its optional
+  `include_nvml` argument also reads local NVIDIA telemetry when the NVML extra is installed.
 - `probe_inference_endpoint`: active; sends one bounded inference POST and says so in its tool
   description.
 
@@ -163,25 +182,32 @@ uv sync --extra tui
 uv run --extra tui pytest tests/test_tui.py
 ```
 
+To verify read-only local NVIDIA collection:
+
+```console
+uv sync --extra nvml
+uv run --extra nvml infertop diagnose http://localhost:8000 --nvml
+```
+
 ## What it cannot see
 
 - One scrape cannot prove a counter is increasing or a queue is sustained. Live diagnosis takes
   three samples by default; offline diagnosis should pass `--previous`.
 - Aggregate histograms cannot identify periodic ITL spikes or correlate them with individual
   long-prompt arrivals. The active probe sees one request, not historical causality.
-- Metrics explain symptoms exposed by the server, not kernel, network, client, model-quality, or
-  GPU-hardware faults.
-- NVML fusion and historical Prometheus are later slices.
+- Engine metrics do not explain kernel, network, client, or model-quality faults. Optional NVML
+  adds coarse local utilization evidence, not kernel-level profiling or hardware fault diagnosis.
+- Historical Prometheus is a later slice.
 - Multi-scheduler SGLang deployments can expose rank-labelled series. `infertop` supports the
   default metrics configuration; cross-rank de-duplication is not yet topology-aware.
 - Thresholds are conservative starting points, not universal SLOs or capacity targets.
 
 ## Safety
 
-Core diagnosis only sends `GET` to `/metrics` and never follows redirects. It does not call admin
-or mutation endpoints, retain history, or change server configuration. The separately named
-`probe` command performs one explicitly requested inference `POST`, which consumes compute but
-does not alter configuration.
+Core diagnosis only sends `GET` to `/metrics` and never follows redirects. Optional NVML collection
+uses device-query APIs only. Neither path calls admin or mutation endpoints, retains history, or
+changes server or GPU configuration. The separately named `probe` command performs one explicitly
+requested inference `POST`, which consumes compute but does not alter configuration.
 
 ## Sources
 
@@ -192,3 +218,6 @@ Metric names and aliases track the
 [per-request metrics](https://docs.vllm.ai/en/latest/features/per_request_metrics/) documentation,
 plus the
 [SGLang production metrics](https://docs.sglang.io/docs/references/production_metrics) reference.
+Hardware fields follow NVIDIA's
+[NVML device-query API](https://docs.nvidia.com/deploy/nvml-api/group__nvmlDeviceQueries.html) and
+[utilization definitions](https://docs.nvidia.com/deploy/nvml-api/structnvmlUtilization__t.html).

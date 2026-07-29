@@ -18,6 +18,7 @@ def diagnose_endpoint_result(
     interval_seconds: float = 5.0,
     timeout_seconds: float = 5.0,
     sample_count: int = 3,
+    include_nvml: bool = False,
 ) -> dict[str, Any]:
     """Return structured deterministic findings from read-only metrics scrapes."""
 
@@ -26,6 +27,7 @@ def diagnose_endpoint_result(
         interval_seconds=interval_seconds,
         timeout_seconds=timeout_seconds,
         sample_count=sample_count,
+        include_nvml=include_nvml,
     )
     return json.loads(render_json(observation, diagnose(observation)))
 
@@ -73,14 +75,16 @@ def create_server() -> Any:
         interval_seconds: float = 5.0,
         timeout_seconds: float = 5.0,
         sample_count: int = 3,
+        include_nvml: bool = False,
     ) -> dict[str, Any]:
-        """Read /metrics repeatedly and return ranked, evidence-backed findings."""
+        """Read /metrics repeatedly; optionally fuse read-only local NVML evidence."""
 
         return diagnose_endpoint_result(
             endpoint,
             interval_seconds=interval_seconds,
             timeout_seconds=timeout_seconds,
             sample_count=sample_count,
+            include_nvml=include_nvml,
         )
 
     @server.tool()

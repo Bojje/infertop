@@ -50,9 +50,11 @@ def test_watch_app_renders_engine_findings_without_network() -> None:
 def test_watch_app_polls_with_async_scraper() -> None:
     async def exercise() -> None:
         scrapes = 0
+        received: dict[str, object] = {}
 
-        async def scrape(_endpoint: str, **_kwargs: object) -> InferenceSnapshot:
+        async def scrape(_endpoint: str, **kwargs: object) -> InferenceSnapshot:
             nonlocal scrapes
+            received.update(kwargs)
             snapshot = _snapshot(scrapes)
             scrapes += 1
             return snapshot
@@ -61,11 +63,13 @@ def test_watch_app_polls_with_async_scraper() -> None:
             "http://localhost:8000",
             interval_seconds=60,
             sample_count=3,
+            include_nvml=True,
             scraper=scrape,
         )
         async with app.run_test(size=(100, 40)) as pilot:
             await pilot.pause()
             assert scrapes == 1
+            assert received["include_nvml"] is True
             assert "samples 1/3" in str(app.query_one("#status", Static).content)
             await pilot.press("q")
 

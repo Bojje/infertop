@@ -6,9 +6,10 @@ import httpx
 import pytest
 
 from infertop.collector import CollectionError, collect_endpoint, scrape_endpoint_async
+from infertop.schema import GpuDeviceSnapshot
 
 
-def test_live_collector_builds_three_sample_window_and_counter_rates() -> None:
+def test_live_collector_builds_three_sample_window_and_counter_rates(monkeypatch) -> None:
     scrape = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -27,16 +28,22 @@ def test_live_collector_builds_three_sample_window_and_counter_rates() -> None:
             """,
         )
 
+    gpu = GpuDeviceSnapshot(index=0, name="GPU", uuid="GPU-test", gpu_utilization=0.5)
+    monkeypatch.setattr("infertop.collector.collect_nvml_gpus", lambda: (gpu,))
+
     observation = collect_endpoint(
         "http://localhost:8000",
         interval_seconds=0.001,
         sample_count=3,
+        include_nvml=True,
         transport=httpx.MockTransport(handler),
     )
 
     assert scrape == 3
     assert observation.sample_count == 3
     assert observation.current.requests_running == 3
+    assert observation.current.gpus == (gpu,)
+    assert observation.gpu_average_values("gpu_utilization") == (0.5, 0.5, 0.5)
     assert observation.total_tokens_per_second is not None
     assert observation.total_tokens_per_second > 0
 
