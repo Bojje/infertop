@@ -17,7 +17,9 @@ deterministic rules. Every finding prints its inputs, thresholds, and engine-spe
 INFERTOP
 Engine: vllm
 Source: http://localhost:8000/metrics
-Observed: 5.0s across 2 samples
+Observed: 10.0s across 2 samples
+Coverage: 3/5 core rules fully covered
+Blocked: R1 (missing latency histograms); R5 (requires at least 3 samples)
 
 1. CRITICAL [R3_KV_THRASHING] KV cache is thrashing
    The preemption counter is rising, proving active memory thrashing.
@@ -117,6 +119,11 @@ unless that endpoint is actually served by the local GPUs printed in the report.
 
 The starting thresholds live in `Thresholds` and are printed beside evidence. Rules are pure
 functions over `InferenceObservation`, so they can be tested without a GPU.
+
+`infertop` also reports full input coverage for R1-R5. A missing metric or an empty histogram
+blocks only the rules that depend on it. If R1-R3 are not fully covered, a clean threshold pass
+is reported as `INCONCLUSIVE` rather than being mislabeled `HEALTHY`; the report names the
+blocked rules and the exact missing or inactive evidence.
 
 ## MCP
 

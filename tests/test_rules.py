@@ -6,6 +6,7 @@ import pytest
 
 from infertop.collector import collect_file_series, collect_files
 from infertop.rules import (
+    assess_diagnostic_coverage,
     diagnose,
     rule_batch_efficiency,
     rule_hardware_correlation,
@@ -27,6 +28,7 @@ SCENARIOS = (
     "decode_bound",
     "sglang_healthy",
     "sglang_thrashing",
+    "sparse_vllm",
 )
 
 
@@ -55,6 +57,36 @@ def test_kv_rule_does_not_claim_thrashing_from_one_lifetime_counter() -> None:
     finding = rule_kv_cache_health(observation)
     assert finding is not None
     assert finding.rule_id == "R3_KV_PRESSURE"
+
+
+def test_complete_healthy_fixture_supports_health_verdict() -> None:
+    observation = collect_files(
+        FIXTURES / "healthy.prom",
+        previous_path=FIXTURES / "healthy_before.prom",
+        interval_seconds=10,
+    )
+
+    coverage = assess_diagnostic_coverage(observation)
+
+    assert coverage.health_verdict_supported
+    assert coverage.covered_rules == ("R1", "R2", "R3", "R4")
+    assert diagnose(observation)[0].rule_id == "HEALTHY"
+
+
+def test_identical_histograms_do_not_turn_no_traffic_into_healthy() -> None:
+    observation = collect_files(
+        FIXTURES / "healthy.prom",
+        previous_path=FIXTURES / "healthy.prom",
+        interval_seconds=10,
+    )
+
+    coverage = assess_diagnostic_coverage(observation)
+    finding = diagnose(observation)[0]
+
+    assert not coverage.health_verdict_supported
+    assert any(gap.rule_id == "R1" for gap in coverage.blocked_rules)
+    assert finding.rule_id == "INCONCLUSIVE"
+    assert "inactive telemetry" in finding.summary
 
 
 def test_counter_reset_uses_new_counter_value_as_delta() -> None:

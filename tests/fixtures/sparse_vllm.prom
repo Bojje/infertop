@@ -1,0 +1,4 @@
+# A second scrape still lacks latency, preemption, shape, and throughput metrics.
+vllm:num_requests_running 1
+vllm:num_requests_waiting 0
+vllm:kv_cache_usage_perc 0.20

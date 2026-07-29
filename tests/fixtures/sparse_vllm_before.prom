@@ -1,0 +1,4 @@
+# A supported endpoint with too little telemetry for a healthy verdict.
+vllm:num_requests_running 1
+vllm:num_requests_waiting 0
+vllm:kv_cache_usage_perc 0.20

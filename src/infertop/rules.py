@@ -64,6 +64,31 @@ class Rule:
     evaluate: Evaluator
 
 
+@dataclass(frozen=True)
+class CoverageGap:
+    """Why one core rule lacked its full input evidence."""
+
+    rule_id: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DiagnosticCoverage:
+    """Pure assessment of which aggregate rules had their full input evidence."""
+
+    covered_rules: tuple[str, ...]
+    blocked_rules: tuple[CoverageGap, ...]
+    health_verdict_supported: bool
+
+    @property
+    def covered_count(self) -> int:
+        return len(self.covered_rules)
+
+    @property
+    def total_count(self) -> int:
+        return self.covered_count + len(self.blocked_rules)
+
+
 def _p95(observation: InferenceObservation, name: str) -> float | None:
     distribution = getattr(observation, name)
     return distribution.p95 if distribution is not None else None
@@ -687,6 +712,110 @@ RULES = (
 )
 
 
+def _distribution_gaps(
+    observation: InferenceObservation,
+    names: tuple[str, ...],
+) -> tuple[str, ...]:
+    missing = []
+    empty = []
+    for name in names:
+        if getattr(observation.current, name) is None:
+            missing.append(name)
+            continue
+        distribution = getattr(observation, name)
+        if distribution is None or distribution.p95 is None:
+            empty.append(name)
+    reasons = []
+    if missing:
+        reasons.append("missing histograms: " + ", ".join(missing))
+    if empty:
+        reasons.append("no observations in sample window: " + ", ".join(empty))
+    return tuple(reasons)
+
+
+def _sample_field_gaps(
+    observation: InferenceObservation,
+    names: tuple[str, ...],
+) -> tuple[str, ...]:
+    missing = tuple(
+        name for name in names if len(observation.gauge_values(name)) != observation.sample_count
+    )
+    return ("missing samples: " + ", ".join(missing),) if missing else ()
+
+
+def assess_diagnostic_coverage(observation: InferenceObservation) -> DiagnosticCoverage:
+    """Report whether R1-R5 had full input evidence, independent of verdicts."""
+
+    requirements = (
+        (
+            "R1",
+            _distribution_gaps(
+                observation,
+                (
+                    "end_to_end_latency_seconds",
+                    "time_to_first_token_seconds",
+                    "time_per_output_token_seconds",
+                ),
+            ),
+        ),
+        (
+            "R2",
+            (
+                *(("requires at least 2 samples",) if observation.sample_count < 2 else ()),
+                *_sample_field_gaps(
+                    observation,
+                    ("requests_running", "requests_waiting", "kv_cache_usage"),
+                ),
+            ),
+        ),
+        (
+            "R3",
+            (
+                *(("requires at least 2 samples",) if observation.sample_count < 2 else ()),
+                *_sample_field_gaps(
+                    observation,
+                    ("kv_cache_usage", "preemptions_total"),
+                ),
+            ),
+        ),
+        (
+            "R4",
+            _distribution_gaps(
+                observation,
+                ("prompt_tokens", "generation_tokens"),
+            ),
+        ),
+        (
+            "R5",
+            (
+                *(("requires at least 3 samples",) if observation.sample_count < 3 else ()),
+                *_sample_field_gaps(
+                    observation,
+                    (
+                        "requests_running",
+                        "requests_waiting",
+                        "kv_cache_usage",
+                        "prompt_tokens_total",
+                        "generation_tokens_total",
+                    ),
+                ),
+            ),
+        ),
+    )
+    covered_rules = tuple(rule_id for rule_id, reasons in requirements if not reasons)
+    blocked_rules = tuple(
+        CoverageGap(rule_id=rule_id, reasons=reasons)
+        for rule_id, reasons in requirements
+        if reasons
+    )
+    health_verdict_supported = all(rule_id in covered_rules for rule_id in ("R1", "R2", "R3"))
+    return DiagnosticCoverage(
+        covered_rules=covered_rules,
+        blocked_rules=blocked_rules,
+        health_verdict_supported=health_verdict_supported,
+    )
+
+
 def diagnose(
     observation: InferenceObservation,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
@@ -697,19 +826,49 @@ def diagnose(
         finding for rule in RULES if (finding := rule.evaluate(observation, thresholds)) is not None
     ]
     if not findings:
+        coverage = assess_diagnostic_coverage(observation)
         prefix_hit_rate = observation.prefix_cache_hit_rate
-        evidence = ["No R1-R6 threshold was crossed."]
-        if prefix_hit_rate is not None:
-            evidence.append(f"Prefix cache hit rate: {prefix_hit_rate:.1%}")
-        findings.append(
-            Finding(
-                rule_id="HEALTHY",
-                title="No diagnosed bottleneck",
-                severity=Severity.HEALTHY,
-                score=0,
-                summary="The available metrics do not indicate a diagnosed bottleneck.",
-                evidence=tuple(evidence),
-                remediations=("Keep monitoring under representative production traffic.",),
+        if coverage.health_verdict_supported:
+            evidence = [
+                "R1-R3 had sufficient telemetry and no R1-R6 threshold was crossed.",
+                (
+                    f"Core rule coverage: {coverage.covered_count}/{coverage.total_count} "
+                    "rules fully covered"
+                ),
+            ]
+            if prefix_hit_rate is not None:
+                evidence.append(f"Prefix cache hit rate: {prefix_hit_rate:.1%}")
+            findings.append(
+                Finding(
+                    rule_id="HEALTHY",
+                    title="No diagnosed bottleneck",
+                    severity=Severity.HEALTHY,
+                    score=0,
+                    summary="The available metrics support a healthy aggregate verdict.",
+                    evidence=tuple(evidence),
+                    remediations=("Keep monitoring under representative production traffic.",),
+                )
             )
-        )
+        else:
+            blocked = tuple(
+                f"{gap.rule_id}: {'; '.join(gap.reasons)}" for gap in coverage.blocked_rules
+            )
+            findings.append(
+                Finding(
+                    rule_id="INCONCLUSIVE",
+                    title="Telemetry is insufficient for a healthy verdict",
+                    severity=Severity.INFO,
+                    score=0,
+                    summary=(
+                        "No bottleneck was diagnosed, but missing or inactive telemetry "
+                        "prevents infertop from calling the endpoint healthy."
+                    ),
+                    evidence=blocked,
+                    remediations=(
+                        "Run diagnose during representative request traffic.",
+                        "Verify the engine exposes the metrics named in the blocked rules.",
+                        "Use multiple live samples so queue and counter trends can be evaluated.",
+                    ),
+                )
+            )
     return tuple(sorted(findings, key=lambda finding: (-finding.score, finding.rule_id)))
