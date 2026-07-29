@@ -1,1 +1,4 @@
+vllm:num_requests_running{model_name="Qwen/Qwen3-0.6B"} 6
+vllm:num_requests_waiting{model_name="Qwen/Qwen3-0.6B"} 0
+vllm:kv_cache_usage_perc{model_name="Qwen/Qwen3-0.6B"} 0.65
 vllm:num_preemptions_total{model_name="Qwen/Qwen3-0.6B"} 0
