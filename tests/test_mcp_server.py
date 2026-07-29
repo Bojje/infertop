@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from infertop.mcp_server import probe_inference_endpoint_result
-from infertop.probe import ProbeResult
+from infertop.probe import ProbeResult, ProbeTiming
 
 
 def test_mcp_probe_wrapper_returns_structured_result(monkeypatch) -> None:
@@ -12,6 +12,12 @@ def test_mcp_probe_wrapper_returns_structured_result(monkeypatch) -> None:
         prompt_tokens=4,
         completion_tokens=1,
         metrics=None,
+        timing=ProbeTiming(
+            client_round_trip_ms=100,
+            server_accounted_ms=None,
+            outside_engine_ms=None,
+            outside_engine_ratio=None,
+        ),
         dominant_phase=None,
         verdict="No timing metrics.",
         evidence=("Unavailable",),
@@ -26,3 +32,4 @@ def test_mcp_probe_wrapper_returns_structured_result(monkeypatch) -> None:
 
     assert payload["model"] == "model"
     assert payload["request_id"] == "request-1"
+    assert payload["timing"]["client_round_trip_ms"] == 100

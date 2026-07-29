@@ -5,7 +5,7 @@ from pathlib import Path
 
 from infertop.cli import main
 from infertop.collector import collect_files
-from infertop.probe import ProbeResult, RequestMetrics
+from infertop.probe import ProbeResult, ProbeTiming, RequestMetrics
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -58,6 +58,12 @@ def test_probe_command_prints_per_request_phase_verdict(capsys, monkeypatch) -> 
             mean_itl_ms=10,
             tokens_per_second=20,
         ),
+        timing=ProbeTiming(
+            client_round_trip_ms=125,
+            server_accounted_ms=110,
+            outside_engine_ms=15,
+            outside_engine_ratio=0.12,
+        ),
         dominant_phase="prefill/TTFT",
         verdict="This probe spent most of its measured time reaching the first token.",
         evidence=("TTFT after scheduling: 80.0ms",),
@@ -71,6 +77,7 @@ def test_probe_command_prints_per_request_phase_verdict(capsys, monkeypatch) -> 
     assert exit_code == 0
     assert "INFERTOP ACTIVE PROBE" in output
     assert "prefill" in output
+    assert "Completion HTTP round trip: 125.0ms" in output
 
 
 def test_nvml_is_rejected_for_offline_fixture(capsys) -> None:

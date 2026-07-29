@@ -5,7 +5,13 @@ import json
 import httpx
 import pytest
 
-from infertop.probe import ProbeError, api_base_url, probe_endpoint
+from infertop.probe import (
+    ProbeError,
+    RequestMetrics,
+    api_base_url,
+    correlate_probe_timing,
+    probe_endpoint,
+)
 
 
 def test_api_base_url_accepts_server_metrics_and_v1_urls() -> None:
@@ -73,9 +79,83 @@ def test_probe_explains_missing_per_request_metrics() -> None:
     )
 
     assert result.metrics is None
+    assert result.timing.server_accounted_ms is None
     assert "--enable-per-request-metrics" in result.remediations[0]
 
 
 def test_probe_enforces_output_token_safety_bound() -> None:
     with pytest.raises(ProbeError, match="between 1 and 256"):
         probe_endpoint("http://localhost:8000", max_tokens=257)
+
+
+def test_correlates_client_round_trip_with_server_accounted_time() -> None:
+    timing = correlate_probe_timing(
+        RequestMetrics(
+            queue_time_ms=50,
+            time_to_first_token_ms=100,
+            generation_time_ms=200,
+        ),
+        client_round_trip_ms=1000,
+    )
+
+    assert timing.server_accounted_ms == pytest.approx(350)
+    assert timing.outside_engine_ms == pytest.approx(650)
+    assert timing.outside_engine_ratio == pytest.approx(0.65)
+
+
+def test_probe_diagnoses_significant_time_outside_engine_phases(monkeypatch) -> None:
+    moments = iter((10.0, 11.0))
+    monkeypatch.setattr("infertop.probe._monotonic_seconds", lambda: next(moments))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "usage": {"prompt_tokens": 9, "completion_tokens": 20},
+                "metrics": {
+                    "time_to_first_token_ms": 100,
+                    "generation_time_ms": 200,
+                    "queue_time_ms": 50,
+                    "mean_itl_ms": 10,
+                    "tokens_per_second": 66,
+                },
+            },
+        )
+
+    result = probe_endpoint(
+        "http://localhost:8000",
+        model="model",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert result.dominant_phase == "outside engine"
+    assert result.timing.outside_engine_ms == pytest.approx(650)
+    assert "unattributed time" in result.remediations[-1]
+
+
+def test_significant_residual_does_not_override_larger_engine_phase(monkeypatch) -> None:
+    moments = iter((20.0, 20.45))
+    monkeypatch.setattr("infertop.probe._monotonic_seconds", lambda: next(moments))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "metrics": {
+                    "time_to_first_token_ms": 40,
+                    "generation_time_ms": 300,
+                    "queue_time_ms": 10,
+                }
+            },
+        )
+
+    result = probe_endpoint(
+        "http://localhost:8000",
+        model="model",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert result.timing.outside_engine_ms == pytest.approx(100)
+    assert result.dominant_phase == "decode"

@@ -57,7 +57,10 @@ infertop probe http://localhost:8000
 
 The probe discovers the first served model through `/v1/models`, sends a non-streaming
 OpenAI-compatible chat completion capped at eight output tokens, and decomposes that request into
-queue, TTFT/prefill, and decode using vLLM's response-level metrics.
+queue, TTFT/prefill, and decode using vLLM's response-level metrics. It also compares those phases
+with the completion HTTP round trip. A large residual is reported as unattributed time outside the
+engine phases, with network, proxy, API middleware, serialization, and client buffering as places
+to investigate—not as a guessed root cause.
 
 Start vLLM with per-request metrics enabled:
 
