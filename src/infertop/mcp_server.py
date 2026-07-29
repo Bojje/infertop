@@ -62,7 +62,7 @@ def create_server() -> Any:
     server = FastMCP(
         "infertop",
         instructions=(
-            "Diagnose vLLM endpoints with deterministic, evidence-backed rules. "
+            "Diagnose vLLM and SGLang endpoints with deterministic, evidence-backed rules. "
             "diagnose_endpoint is read-only. probe_inference_endpoint sends one bounded request."
         ),
     )

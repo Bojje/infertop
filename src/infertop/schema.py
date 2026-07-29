@@ -87,12 +87,14 @@ class InferenceSnapshot:
 
     source: str
     captured_at: float
+    engine: str = "unknown"
     requests_running: float | None = None
     requests_waiting: float | None = None
     kv_cache_usage: float | None = None
     preemptions_total: float | None = None
     prefix_cache_queries_total: float | None = None
     prefix_cache_hits_total: float | None = None
+    prefix_cache_hit_rate_gauge: float | None = None
     prompt_tokens_total: float | None = None
     generation_tokens_total: float | None = None
     end_to_end_latency_seconds: Distribution | None = None
@@ -183,6 +185,9 @@ class InferenceObservation:
 
     @property
     def prefix_cache_hit_rate(self) -> float | None:
+        gauge = self.current.prefix_cache_hit_rate_gauge
+        if gauge is not None:
+            return min(max(gauge, 0.0), 1.0)
         queries = self._counter_delta("prefix_cache_queries_total")
         hits = self._counter_delta("prefix_cache_hits_total")
         if queries is None or hits is None or queries <= 0:

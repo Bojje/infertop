@@ -70,6 +70,16 @@ def _p50(observation: InferenceObservation, name: str) -> float | None:
     return distribution.p50 if distribution is not None else None
 
 
+def _engine_text(
+    observation: InferenceObservation,
+    *,
+    vllm: str,
+    sglang: str,
+    generic: str,
+) -> str:
+    return {"vllm": vllm, "sglang": sglang}.get(observation.current.engine, generic)
+
+
 def rule_symptom_isolation(
     observation: InferenceObservation,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
@@ -122,7 +132,15 @@ def rule_symptom_isolation(
         evidence=evidence,
         remediations=(
             "Inspect prompt lengths and running batch size before tuning.",
-            "If spikes coincide with long prompts, tune --max-num-batched-tokens.",
+            _engine_text(
+                observation,
+                vllm="If spikes coincide with long prompts, tune --max-num-batched-tokens.",
+                sglang=(
+                    "If spikes coincide with long prompts, tune "
+                    "--max-prefill-tokens or --chunked-prefill-size."
+                ),
+                generic="If spikes coincide with long prompts, tune prefill batch limits.",
+            ),
             "Benchmark quantization or faster-memory hardware for persistently high ITL.",
         ),
     )
@@ -144,7 +162,7 @@ def rule_saturation(
         and kv_usage is not None
         and kv_usage >= thresholds.high_kv_cache_usage
     ):
-        previous_waiting = observation.previous.requests_waiting if observation.previous else None
+        waiting_values = observation.gauge_values("requests_waiting")
         return Finding(
             rule_id="R2_SATURATED",
             title="Server is saturated",
@@ -155,7 +173,7 @@ def rule_saturation(
                 "KV cache was nearly full."
             ),
             evidence=(
-                f"Waiting requests: {previous_waiting:g} -> {waiting:g}",
+                "Waiting requests: " + " -> ".join(f"{value:g}" for value in waiting_values),
                 f"Running requests: {running:g}" if running is not None else "Running: unavailable",
                 (
                     f"KV cache usage: {kv_usage:.1%} "
@@ -164,7 +182,15 @@ def rule_saturation(
             ),
             remediations=(
                 "Add replicas or reduce admitted request load.",
-                "Lower --max-num-seqs if concurrency exceeds sustainable KV capacity.",
+                _engine_text(
+                    observation,
+                    vllm="Lower --max-num-seqs if concurrency exceeds sustainable KV capacity.",
+                    sglang=(
+                        "Lower --max-running-requests if concurrency exceeds "
+                        "sustainable KV capacity."
+                    ),
+                    generic="Lower the engine concurrency limit if KV demand is unsustainable.",
+                ),
                 "Use admission control so overload fails predictably instead of queueing.",
             ),
         )
@@ -207,12 +233,13 @@ def rule_kv_cache_health(
     observation: InferenceObservation,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ) -> Finding | None:
-    """R3: detect rising preemptions and pinned KV cache."""
+    """R3: detect rising memory-pressure events and pinned KV cache."""
 
     usage = observation.current.kv_cache_usage
     delta = observation.preemptions_delta
     rate = observation.preemptions_per_second
     prefix_hit_rate = observation.prefix_cache_hit_rate
+    event_name = "Retractions" if observation.current.engine == "sglang" else "Preemptions"
     if delta is not None and delta > 0:
         interval = observation.interval_seconds
         evidence = []
@@ -222,9 +249,9 @@ def rule_kv_cache_health(
                 f"(pressure threshold: {thresholds.high_kv_cache_usage:.1%})"
             )
         if interval is not None and rate is not None:
-            evidence.append(f"Preemptions: +{delta:g} over {interval:.1f}s ({rate:.2f}/s)")
+            evidence.append(f"{event_name}: +{delta:g} over {interval:.1f}s ({rate:.2f}/s)")
         else:
-            evidence.append(f"Preemptions increased by {delta:g}")
+            evidence.append(f"{event_name} increased by {delta:g}")
         if prefix_hit_rate is not None:
             evidence.append(f"Prefix cache hit rate: {prefix_hit_rate:.1%}")
         return Finding(
@@ -232,12 +259,40 @@ def rule_kv_cache_health(
             title="KV cache is thrashing",
             severity=Severity.CRITICAL,
             score=100,
-            summary="The preemption counter is rising, proving active memory thrashing.",
+            summary=(
+                f"The {event_name.lower()} counter is rising, proving active memory thrashing."
+            ),
             evidence=tuple(evidence),
             remediations=(
-                "Lower --max-num-seqs until preemptions stop increasing.",
-                "Increase cache capacity with --kv-cache-dtype fp8 where hardware supports it.",
-                "Use FP8/AWQ/GPTQ weights or a smaller model to leave more VRAM for KV cache.",
+                _engine_text(
+                    observation,
+                    vllm="Lower --max-num-seqs until preemptions stop increasing.",
+                    sglang=("Increase --schedule-conservativeness until request retractions stop."),
+                    generic="Reduce scheduler concurrency until memory-pressure events stop.",
+                ),
+                _engine_text(
+                    observation,
+                    vllm=(
+                        "Increase cache capacity with --kv-cache-dtype fp8 "
+                        "where hardware supports it."
+                    ),
+                    sglang=(
+                        "Use --kv-cache-dtype fp8_e4m3 or fp8_e5m2 where hardware supports it."
+                    ),
+                    generic="Use a smaller KV cache dtype where the engine supports it.",
+                ),
+                _engine_text(
+                    observation,
+                    vllm=(
+                        "Use FP8/AWQ/GPTQ weights or a smaller model "
+                        "to leave more VRAM for KV cache."
+                    ),
+                    sglang=(
+                        "Lower --max-running-requests or use a smaller model "
+                        "to reduce concurrent KV demand."
+                    ),
+                    generic="Use a smaller model to leave more memory for KV cache.",
+                ),
             ),
         )
     if usage is not None and usage >= thresholds.critical_kv_cache_usage:
@@ -245,8 +300,21 @@ def rule_kv_cache_health(
             (f"KV cache usage: {usage:.1%} (critical: >= {thresholds.critical_kv_cache_usage:.1%})")
         ]
         remediations = [
-            "Lower --max-num-seqs or reduce maximum sequence length.",
-            "Use --kv-cache-dtype fp8 where supported to increase cache capacity.",
+            _engine_text(
+                observation,
+                vllm="Lower --max-num-seqs or reduce maximum sequence length.",
+                sglang="Lower --max-running-requests or reduce maximum sequence length.",
+                generic="Lower the concurrency limit or reduce maximum sequence length.",
+            ),
+            _engine_text(
+                observation,
+                vllm="Use --kv-cache-dtype fp8 where supported to increase cache capacity.",
+                sglang=(
+                    "Use --kv-cache-dtype fp8_e4m3 or fp8_e5m2 "
+                    "where supported to increase cache capacity."
+                ),
+                generic="Use a smaller KV cache dtype where supported.",
+            ),
         ]
         if prefix_hit_rate is not None:
             evidence.append(
@@ -329,7 +397,15 @@ def rule_sequence_lengths(
             remediations=(
                 "Lower output limits where product behavior permits.",
                 "Use stop sequences to avoid unnecessary generation.",
-                "Evaluate speculative decoding with --speculative-config.",
+                _engine_text(
+                    observation,
+                    vllm="Evaluate speculative decoding with --speculative-config.",
+                    sglang=(
+                        "Evaluate SGLang speculative decoding, for example "
+                        "--speculative-algorithm EAGLE3."
+                    ),
+                    generic="Evaluate the engine's speculative decoding support.",
+                ),
             ),
         )
     return None
@@ -379,8 +455,26 @@ def rule_batch_efficiency(
                 f"KV cache range: {min(kv_usage):.1%}-{max(kv_usage):.1%}",
             ),
             remediations=(
-                "Compare the flat running batch with configured --max-num-seqs.",
-                "Raise --max-num-seqs only if KV headroom and latency SLOs permit it.",
+                _engine_text(
+                    observation,
+                    vllm="Compare the flat running batch with configured --max-num-seqs.",
+                    sglang=(
+                        "Compare the flat running batch with configured --max-running-requests."
+                    ),
+                    generic="Compare the flat running batch with the engine concurrency limit.",
+                ),
+                _engine_text(
+                    observation,
+                    vllm="Raise --max-num-seqs only if KV headroom and latency SLOs permit it.",
+                    sglang=(
+                        "Raise --max-running-requests only if KV headroom "
+                        "and latency SLOs permit it."
+                    ),
+                    generic=(
+                        "Raise the engine concurrency limit only if KV headroom "
+                        "and latency SLOs permit it."
+                    ),
+                ),
                 "Add replicas when the waiting queue persists at the safe concurrency limit.",
             ),
         )

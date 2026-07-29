@@ -1,20 +1,21 @@
 # infertop
 
-Attach to a vLLM endpoint and get a ranked, evidence-backed explanation of why inference is
-slow—without Prometheus, Grafana, an agent, or GPU access.
+Attach to a vLLM or SGLang endpoint and get a ranked, evidence-backed explanation of why inference
+is slow—without Prometheus, Grafana, an agent, or GPU access.
 
 ```console
 uvx infertop diagnose http://localhost:8000
 ```
 
-`infertop` polls `/metrics` across a short sample window, converts cumulative counters and
-histogram buckets into an engine-independent observation, and runs deterministic rules. Every
-finding prints its inputs, thresholds, and concrete remediation.
+`infertop` detects the serving engine, polls `/metrics` across a short sample window, converts
+cumulative counters and histogram buckets into an engine-independent observation, and runs
+deterministic rules. Every finding prints its inputs, thresholds, and engine-specific remediation.
 
 ## Example
 
 ```text
 INFERTOP
+Engine: vllm
 Source: http://localhost:8000/metrics
 Observed: 5.0s across 2 samples
 
@@ -68,6 +69,24 @@ secret value as an argument. `--max-tokens` has a hard safety ceiling of 256.
 Per-request timing is a probe result, not a workload-wide verdict. Use representative traffic and
 `diagnose` for server-level conclusions.
 
+The response-level timing object is currently a vLLM extension. SGLang endpoints still work with
+`diagnose` and `watch`; `probe` falls back to explaining that phase-level response metrics were not
+available.
+
+## SGLang
+
+Launch SGLang with Prometheus metrics enabled, then point the same commands at its server (port
+30000 by default):
+
+```console
+python -m sglang.launch_server --model-path Qwen/Qwen3-0.6B --enable-metrics
+infertop diagnose http://localhost:30000
+```
+
+The normalizer accepts both the current `sglang:` metric namespace and the historical `sglang_`
+form. Request retractions map to the canonical memory-pressure signal, and findings recommend
+SGLang flags such as `--schedule-conservativeness` and `--max-running-requests`.
+
 ## Rules
 
 | Rule | Evidence | Verdicts |
@@ -115,9 +134,9 @@ uv run infertop diagnose tests/fixtures/kv_thrashing.prom \
   --previous tests/fixtures/kv_thrashing_before.prom --interval 10
 ```
 
-The checked-in fixtures use real vLLM exposition names and shapes, but are currently hand-shaped
-representative snapshots. They are not mislabeled as captures. Replace or augment them with
-recorded local load scenarios before making benchmark claims.
+The checked-in fixtures use real vLLM and SGLang exposition names and shapes, but are currently
+hand-shaped representative snapshots. They are not mislabeled as captures. Replace or augment them
+with recorded local load scenarios before making benchmark claims.
 
 ## Development
 
@@ -152,8 +171,9 @@ uv run --extra tui pytest tests/test_tui.py
   long-prompt arrivals. The active probe sees one request, not historical causality.
 - Metrics explain symptoms exposed by the server, not kernel, network, client, model-quality, or
   GPU-hardware faults.
-- v0.1 normalizes vLLM only. SGLang normalization, NVML fusion, and historical Prometheus are
-  later slices.
+- NVML fusion and historical Prometheus are later slices.
+- Multi-scheduler SGLang deployments can expose rank-labelled series. `infertop` supports the
+  default metrics configuration; cross-rank de-duplication is not yet topology-aware.
 - Thresholds are conservative starting points, not universal SLOs or capacity targets.
 
 ## Safety
@@ -169,4 +189,6 @@ The rule flow follows Red Hat's
 [5 steps to triage vLLM performance](https://developers.redhat.com/articles/2026/03/09/5-steps-triage-vllm-performance).
 Metric names and aliases track the
 [vLLM production metrics](https://docs.vllm.ai/en/stable/usage/metrics/) and
-[per-request metrics](https://docs.vllm.ai/en/latest/features/per_request_metrics/) documentation.
+[per-request metrics](https://docs.vllm.ai/en/latest/features/per_request_metrics/) documentation,
+plus the
+[SGLang production metrics](https://docs.sglang.io/docs/references/production_metrics) reference.

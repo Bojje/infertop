@@ -8,7 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from infertop.normalize import normalize_vllm
+from infertop.normalize import normalize_metrics
 from infertop.schema import InferenceObservation, InferenceSnapshot
 
 
@@ -29,7 +29,7 @@ def metrics_url(endpoint: str) -> str:
 def _scrape(client: httpx.Client, url: str) -> InferenceSnapshot:
     response = client.get(url)
     response.raise_for_status()
-    return normalize_vllm(response.text, source=url, captured_at=time.monotonic())
+    return normalize_metrics(response.text, source=url, captured_at=time.monotonic())
 
 
 def scrape_endpoint(
@@ -69,7 +69,7 @@ async def scrape_endpoint_async(
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
-            return normalize_vllm(response.text, source=url, captured_at=time.monotonic())
+            return normalize_metrics(response.text, source=url, captured_at=time.monotonic())
     except httpx.HTTPError as exc:
         raise CollectionError(f"could not read {url}: {exc}") from exc
 
@@ -135,7 +135,7 @@ def collect_file_series(
         raise CollectionError("a positive interval is required for multiple metrics files")
     step = interval_seconds / (len(paths) - 1) if len(paths) > 1 else 0.0
     snapshots = tuple(
-        normalize_vllm(
+        normalize_metrics(
             path.read_text(),
             source=str(path),
             captured_at=index * step,

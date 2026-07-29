@@ -19,6 +19,7 @@ def render_text(observation: InferenceObservation, findings: tuple[Finding, ...]
     )
     lines = [
         "INFERTOP",
+        f"Engine: {observation.current.engine}",
         f"Source: {observation.current.source}",
         f"Observed: {sample_summary}",
         "",
@@ -41,6 +42,7 @@ def render_text(observation: InferenceObservation, findings: tuple[Finding, ...]
 def render_json(observation: InferenceObservation, findings: tuple[Finding, ...]) -> str:
     payload = {
         "schema_version": 1,
+        "engine": observation.current.engine,
         "source": observation.current.source,
         "sample_count": observation.sample_count,
         "interval_seconds": observation.interval_seconds,

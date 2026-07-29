@@ -9,7 +9,15 @@ from infertop.rules import diagnose, rule_batch_efficiency, rule_kv_cache_health
 from infertop.schema import Distribution, InferenceObservation, InferenceSnapshot
 
 FIXTURES = Path(__file__).parent / "fixtures"
-SCENARIOS = ("healthy", "queue_saturated", "kv_thrashing", "prefill_bound", "decode_bound")
+SCENARIOS = (
+    "healthy",
+    "queue_saturated",
+    "kv_thrashing",
+    "prefill_bound",
+    "decode_bound",
+    "sglang_healthy",
+    "sglang_thrashing",
+)
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -142,3 +150,18 @@ def test_r5_requires_three_samples() -> None:
     )
 
     assert rule_batch_efficiency(observation) is None
+
+
+def test_sglang_thrashing_uses_engine_specific_evidence_and_remediation() -> None:
+    observation = collect_files(
+        FIXTURES / "sglang_thrashing.prom",
+        previous_path=FIXTURES / "sglang_thrashing_before.prom",
+        interval_seconds=10,
+    )
+
+    finding = diagnose(observation)[0]
+
+    assert finding.rule_id == "R3_KV_THRASHING"
+    assert any("Retractions: +4" in item for item in finding.evidence)
+    assert any("--schedule-conservativeness" in item for item in finding.remediations)
+    assert all("--max-num-seqs" not in item for item in finding.remediations)
