@@ -1,0 +1,8 @@
+# Synthetic representative SGLang metrics using the historical underscore namespace.
+sglang_num_running_reqs{model_name="Qwen/Qwen3-0.6B"} 10
+sglang_num_queue_reqs{model_name="Qwen/Qwen3-0.6B"} 2
+sglang_token_usage{model_name="Qwen/Qwen3-0.6B"} 0.93
+sglang_num_retracted_requests_total{model_name="Qwen/Qwen3-0.6B"} 10
+sglang_cache_hit_rate{model_name="Qwen/Qwen3-0.6B"} 0.05
+sglang_prompt_tokens_total{model_name="Qwen/Qwen3-0.6B"} 5000
+sglang_generation_tokens_total{model_name="Qwen/Qwen3-0.6B"} 2000

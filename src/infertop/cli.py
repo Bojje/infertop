@@ -33,10 +33,21 @@ def _parser() -> argparse.ArgumentParser:
         help="seconds between live scrapes, or between fixture files (default: 1)",
     )
     diagnose_parser.add_argument(
+        "--samples",
+        type=int,
+        default=3,
+        help="number of live scrapes; ignored for fixture files (default: 3)",
+    )
+    diagnose_parser.add_argument(
         "--timeout",
         type=float,
         default=5.0,
         help="HTTP timeout in seconds (default: 5)",
+    )
+    diagnose_parser.add_argument(
+        "--nvml",
+        action="store_true",
+        help="fuse read-only local NVIDIA telemetry (requires infertop[nvml])",
     )
     diagnose_parser.add_argument("--json", action="store_true", help="emit JSON")
     probe_parser = subparsers.add_parser(
@@ -68,6 +79,34 @@ def _parser() -> argparse.ArgumentParser:
         help="HTTP timeout in seconds (default: 30)",
     )
     probe_parser.add_argument("--json", action="store_true", help="emit JSON")
+    watch_parser = subparsers.add_parser(
+        "watch",
+        help="continuously render ranked findings (requires infertop[tui])",
+    )
+    watch_parser.add_argument("target", help="server base URL or /metrics URL")
+    watch_parser.add_argument(
+        "--interval",
+        type=float,
+        default=2.0,
+        help="seconds between scrapes (default: 2)",
+    )
+    watch_parser.add_argument(
+        "--samples",
+        type=int,
+        default=3,
+        help="rolling observation window size (default: 3)",
+    )
+    watch_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=5.0,
+        help="HTTP timeout in seconds (default: 5)",
+    )
+    watch_parser.add_argument(
+        "--nvml",
+        action="store_true",
+        help="fuse read-only local NVIDIA telemetry (requires infertop[nvml,tui])",
+    )
     return parser
 
 
@@ -79,8 +118,12 @@ def _run_diagnose(args: argparse.Namespace) -> str:
             args.target,
             interval_seconds=args.interval,
             timeout_seconds=args.timeout,
+            sample_count=args.samples,
+            include_nvml=args.nvml,
         )
     else:
+        if args.nvml:
+            raise CollectionError("--nvml is only valid with a live endpoint")
         observation = collect_files(
             Path(args.target),
             previous_path=args.previous,
@@ -103,13 +146,37 @@ def _run_probe(args: argparse.Namespace) -> str:
     return render_probe_json(result) if args.json else render_probe_text(result)
 
 
+def _run_watch(args: argparse.Namespace) -> None:
+    try:
+        from infertop.tui import run_watch
+    except ImportError as exc:
+        raise RuntimeError('watch requires: pip install "infertop[tui]"') from exc
+    run_watch(
+        args.target,
+        interval_seconds=args.interval,
+        timeout_seconds=args.timeout,
+        sample_count=args.samples,
+        include_nvml=args.nvml,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "watch":
+            _run_watch(args)
+            return 0
         output = _run_diagnose(args) if args.command == "diagnose" else _run_probe(args)
         print(output)
         return 0
-    except (CollectionError, MetricsParseError, ProbeError, OSError, ValueError) as exc:
+    except (
+        CollectionError,
+        MetricsParseError,
+        ProbeError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
         print(f"infertop: error: {exc}", file=sys.stderr)
         return 2
 

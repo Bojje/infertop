@@ -33,7 +33,7 @@ infertop = "infertop.cli:main"
 infertop-mcp = "infertop.mcp_server:main"
 
 [project.optional-dependencies]
-tui = ["textual>=1.0,<2"]
+tui = ["textual>=8.2,<9"]
 nvml = ["nvidia-ml-py>=12"]
 mcp = ["mcp>=1.27,<2"]
 

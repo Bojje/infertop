@@ -1,0 +1,8 @@
+# Synthetic representative SGLang metrics using the current colon namespace.
+sglang:num_running_reqs{model_name="Qwen/Qwen3-0.6B"} 4
+sglang:num_queue_reqs{model_name="Qwen/Qwen3-0.6B"} 0
+sglang:token_usage{model_name="Qwen/Qwen3-0.6B"} 0.42
+sglang:num_retracted_requests_total{model_name="Qwen/Qwen3-0.6B"} 0
+sglang:cache_hit_rate{model_name="Qwen/Qwen3-0.6B"} 0.35
+sglang:prompt_tokens_total{model_name="Qwen/Qwen3-0.6B"} 1000
+sglang:generation_tokens_total{model_name="Qwen/Qwen3-0.6B"} 500

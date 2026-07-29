@@ -1,0 +1,6 @@
+# Synthetic representative vLLM metrics: low active concurrency with KV headroom.
+vllm:num_requests_running 2
+vllm:num_requests_waiting 0
+vllm:kv_cache_usage_perc 0.32
+vllm:prompt_tokens_total 150
+vllm:generation_tokens_total 300

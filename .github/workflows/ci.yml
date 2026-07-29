@@ -40,3 +40,27 @@ jobs:
           server=create_server();
           names={tool.name for tool in asyncio.run(server.list_tools())};
           assert names == {'diagnose_endpoint', 'probe_inference_endpoint'}"
+
+  tui-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --locked --extra tui
+      - run: uv run --extra tui pytest tests/test_tui.py
+      - run: uv run --extra tui infertop watch --help
+
+  nvml-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --locked --extra nvml
+      - run: uv run --extra nvml python -c "import pynvml"
+      - run: uv run --extra nvml pytest tests/test_hardware.py
