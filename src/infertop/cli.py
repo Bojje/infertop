@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 from infertop import __version__
@@ -123,7 +124,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def diagnosis_exit_code(
-    findings: tuple[Finding, ...],
+    findings: Iterable[Finding],
     fail_on: str | None,
 ) -> int:
     """Return 1 when any finding meets an explicitly selected severity threshold."""

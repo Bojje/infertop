@@ -67,6 +67,12 @@ def test_diagnosis_exit_code_policy(
     assert diagnosis_exit_code((_finding(severity),), fail_on) == expected
 
 
+def test_diagnosis_exit_code_accepts_one_pass_findings() -> None:
+    findings = (_finding(severity) for severity in (Severity.INFO, Severity.CRITICAL))
+
+    assert diagnosis_exit_code(findings, "critical") == 1
+
+
 def test_fail_on_critical_returns_one_after_printing_report(capsys) -> None:
     exit_code = main(
         [
