@@ -38,6 +38,14 @@ def metrics_url(endpoint: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, ""))
 
 
+def public_url(url: str) -> str:
+    """Remove URL credentials, query parameters, and fragments from displayed sources."""
+
+    parsed = urlsplit(url)
+    netloc = parsed.netloc.rsplit("@", 1)[-1]
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+
 def _scrape(
     client: httpx.Client,
     url: str,
@@ -46,7 +54,9 @@ def _scrape(
 ) -> InferenceSnapshot:
     response = client.get(url)
     response.raise_for_status()
-    snapshot = normalize_metrics(response.text, source=url, captured_at=time.monotonic())
+    snapshot = normalize_metrics(
+        response.text, source=public_url(url), captured_at=time.monotonic()
+    )
     return replace(snapshot, gpus=collect_nvml_gpus()) if include_nvml else snapshot
 
 
@@ -61,6 +71,7 @@ def scrape_endpoint(
     """Read and normalize exactly one metrics scrape."""
 
     url = metrics_url(endpoint)
+    displayed_url = public_url(url)
     try:
         with httpx.Client(
             timeout=timeout_seconds,
@@ -69,8 +80,12 @@ def scrape_endpoint(
             transport=transport,
         ) as client:
             return _scrape(client, url, include_nvml=include_nvml)
+    except httpx.HTTPStatusError as exc:
+        raise CollectionError(
+            f"could not read {displayed_url}: HTTP {exc.response.status_code}"
+        ) from exc
     except httpx.HTTPError as exc:
-        raise CollectionError(f"could not read {url}: {exc}") from exc
+        raise CollectionError(f"could not read {displayed_url}: {type(exc).__name__}") from exc
 
 
 async def scrape_endpoint_async(
@@ -84,6 +99,7 @@ async def scrape_endpoint_async(
     """Asynchronously read and normalize exactly one metrics scrape."""
 
     url = metrics_url(endpoint)
+    displayed_url = public_url(url)
     try:
         async with httpx.AsyncClient(
             timeout=timeout_seconds,
@@ -93,10 +109,18 @@ async def scrape_endpoint_async(
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
-            snapshot = normalize_metrics(response.text, source=url, captured_at=time.monotonic())
+            snapshot = normalize_metrics(
+                response.text,
+                source=displayed_url,
+                captured_at=time.monotonic(),
+            )
             return replace(snapshot, gpus=collect_nvml_gpus()) if include_nvml else snapshot
+    except httpx.HTTPStatusError as exc:
+        raise CollectionError(
+            f"could not read {displayed_url}: HTTP {exc.response.status_code}"
+        ) from exc
     except httpx.HTTPError as exc:
-        raise CollectionError(f"could not read {url}: {exc}") from exc
+        raise CollectionError(f"could not read {displayed_url}: {type(exc).__name__}") from exc
 
 
 def collect_endpoint(
@@ -117,6 +141,7 @@ def collect_endpoint(
     if sample_count < 2:
         raise CollectionError("sample_count must be at least two")
     url = metrics_url(endpoint)
+    displayed_url = public_url(url)
     topology = collect_nvidia_topology() if tensor_parallel_gpu_indices else None
     validate_tensor_parallel_topology(topology, tensor_parallel_gpu_indices)
     snapshots = []
@@ -131,8 +156,12 @@ def collect_endpoint(
                 snapshots.append(_scrape(client, url, include_nvml=include_nvml))
                 if index < sample_count - 1:
                     time.sleep(interval_seconds)
+    except httpx.HTTPStatusError as exc:
+        raise CollectionError(
+            f"could not read {displayed_url}: HTTP {exc.response.status_code}"
+        ) from exc
     except httpx.HTTPError as exc:
-        raise CollectionError(f"could not read {url}: {exc}") from exc
+        raise CollectionError(f"could not read {displayed_url}: {type(exc).__name__}") from exc
     return InferenceObservation(
         current=snapshots[-1],
         previous=snapshots[0],
