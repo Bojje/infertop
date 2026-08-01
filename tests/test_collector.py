@@ -24,6 +24,7 @@ def test_live_collector_builds_three_sample_window_and_counter_rates(monkeypatch
         nonlocal scrape
         assert request.method == "GET"
         assert request.url.path == "/metrics"
+        assert request.headers["Authorization"] == "Bearer metrics-secret"
         scrape += 1
         return httpx.Response(
             200,
@@ -44,6 +45,7 @@ def test_live_collector_builds_three_sample_window_and_counter_rates(monkeypatch
         interval_seconds=0.001,
         sample_count=3,
         include_nvml=True,
+        api_key="metrics-secret",
         transport=httpx.MockTransport(handler),
     )
 
@@ -59,6 +61,18 @@ def test_live_collector_builds_three_sample_window_and_counter_rates(monkeypatch
 def test_live_collector_requires_at_least_two_samples() -> None:
     with pytest.raises(CollectionError, match="at least two"):
         collect_endpoint("http://localhost:8000", sample_count=1)
+
+
+def test_collection_error_does_not_leak_bearer_token() -> None:
+    with pytest.raises(CollectionError) as captured:
+        collect_endpoint(
+            "http://localhost:8000",
+            sample_count=2,
+            api_key="metrics-secret",
+            transport=httpx.MockTransport(lambda _request: httpx.Response(401)),
+        )
+
+    assert "metrics-secret" not in str(captured.value)
 
 
 def test_offline_series_interval_is_between_adjacent_snapshots() -> None:
@@ -78,14 +92,14 @@ def test_offline_series_interval_is_between_adjacent_snapshots() -> None:
 
 def test_async_scraper_supports_cancellable_tui_collection() -> None:
     async def exercise() -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers["Authorization"] == "Bearer metrics-secret"
+            return httpx.Response(200, text="vllm:num_requests_running 4")
+
         snapshot = await scrape_endpoint_async(
             "http://localhost:8000",
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(
-                    200,
-                    text="vllm:num_requests_running 4",
-                )
-            ),
+            api_key="metrics-secret",
+            transport=httpx.MockTransport(handler),
         )
         assert snapshot.requests_running == 4
 

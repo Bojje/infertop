@@ -64,12 +64,14 @@ def test_watch_app_polls_with_async_scraper() -> None:
             interval_seconds=60,
             sample_count=3,
             include_nvml=True,
+            api_key="metrics-secret",
             scraper=scrape,
         )
         async with app.run_test(size=(100, 40)) as pilot:
             await pilot.pause()
             assert scrapes == 1
             assert received["include_nvml"] is True
+            assert received["api_key"] == "metrics-secret"
             assert "samples 1/3" in str(app.query_one("#status", Static).content)
             await pilot.press("q")
 

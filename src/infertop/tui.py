@@ -55,6 +55,7 @@ class WatchApp(App[None]):
         timeout_seconds: float = 5.0,
         sample_count: int = 3,
         include_nvml: bool = False,
+        api_key: str | None = None,
         scraper: Scraper = scrape_endpoint_async,
         start_polling: bool = True,
     ) -> None:
@@ -68,6 +69,7 @@ class WatchApp(App[None]):
         self.timeout_seconds = timeout_seconds
         self.sample_count = sample_count
         self.include_nvml = include_nvml
+        self.api_key = api_key
         self._scraper = scraper
         self._start_polling = start_polling
         self._snapshots: deque[InferenceSnapshot] = deque(maxlen=sample_count)
@@ -96,6 +98,7 @@ class WatchApp(App[None]):
                 self.endpoint,
                 timeout_seconds=self.timeout_seconds,
                 include_nvml=self.include_nvml,
+                api_key=self.api_key,
             )
         except (CollectionError, OSError, RuntimeError, ValueError) as exc:
             self._show_error(str(exc))
@@ -146,6 +149,7 @@ def run_watch(
     timeout_seconds: float = 5.0,
     sample_count: int = 3,
     include_nvml: bool = False,
+    api_key: str | None = None,
 ) -> None:
     WatchApp(
         endpoint,
@@ -153,4 +157,5 @@ def run_watch(
         timeout_seconds=timeout_seconds,
         sample_count=sample_count,
         include_nvml=include_nvml,
+        api_key=api_key,
     ).run()

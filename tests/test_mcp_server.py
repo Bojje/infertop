@@ -1,7 +1,32 @@
 from __future__ import annotations
 
-from infertop.mcp_server import probe_inference_endpoint_result
+from pathlib import Path
+
+from infertop.collector import collect_files
+from infertop.mcp_server import diagnose_endpoint_result, probe_inference_endpoint_result
 from infertop.probe import ProbeResult, ProbeTiming
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def test_mcp_diagnosis_reads_metrics_token_from_named_environment(monkeypatch) -> None:
+    observation = collect_files(FIXTURES / "healthy.prom")
+    received: dict[str, object] = {}
+
+    def collect(_endpoint: str, **kwargs: object):
+        received.update(kwargs)
+        return observation
+
+    monkeypatch.setattr("infertop.mcp_server.collect_endpoint", collect)
+    monkeypatch.setenv("METRICS_TOKEN", "metrics-secret")
+
+    payload = diagnose_endpoint_result(
+        "http://localhost:8000",
+        api_key_env="METRICS_TOKEN",
+    )
+
+    assert received["api_key"] == "metrics-secret"
+    assert "metrics-secret" not in repr(payload)
 
 
 def test_mcp_probe_wrapper_returns_structured_result(monkeypatch) -> None:

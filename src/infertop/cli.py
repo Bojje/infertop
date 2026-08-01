@@ -66,6 +66,11 @@ def _parser() -> argparse.ArgumentParser:
         help="fuse read-only local NVIDIA telemetry (requires infertop[nvml])",
     )
     diagnose_parser.add_argument(
+        "--api-key-env",
+        default="INFERTOP_API_KEY",
+        help="environment variable containing a metrics bearer token (default: INFERTOP_API_KEY)",
+    )
+    diagnose_parser.add_argument(
         "--fail-on",
         choices=("info", "warning", "critical"),
         help="exit 1 when a finding is at or above this severity (default: report only)",
@@ -128,6 +133,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="fuse read-only local NVIDIA telemetry (requires infertop[nvml,tui])",
     )
+    watch_parser.add_argument(
+        "--api-key-env",
+        default="INFERTOP_API_KEY",
+        help="environment variable containing a metrics bearer token (default: INFERTOP_API_KEY)",
+    )
     return parser
 
 
@@ -155,6 +165,7 @@ def _run_diagnose(args: argparse.Namespace) -> tuple[str, int]:
             timeout_seconds=args.timeout,
             sample_count=args.samples,
             include_nvml=args.nvml,
+            api_key=os.environ.get(args.api_key_env),
         )
     else:
         if args.nvml:
@@ -201,6 +212,7 @@ def _run_watch(args: argparse.Namespace) -> None:
         timeout_seconds=args.timeout,
         sample_count=args.samples,
         include_nvml=args.nvml,
+        api_key=os.environ.get(args.api_key_env),
     )
 
 

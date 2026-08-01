@@ -35,6 +35,19 @@ Blocked: R1 (missing latency histograms); R5 (requires at least 3 samples)
 
 Machine-readable output is available with `--json`.
 
+For a `/metrics` endpoint protected by bearer authentication, keep the token in an environment
+variable rather than command history:
+
+```console
+export INFERTOP_API_KEY="..."
+infertop diagnose https://inference.example.com
+infertop watch https://inference.example.com
+```
+
+Use `--api-key-env CUSTOM_NAME` to read a different variable. The token is sent only as an
+`Authorization: Bearer` header, is never included in reports, and is not forwarded through HTTP
+redirects because metrics collection does not follow them.
+
 For automation, opt into severity-based exit codes:
 
 ```console
@@ -150,6 +163,7 @@ It exposes:
 
 - `diagnose_endpoint`: read-only; performs repeated GET scrapes of `/metrics`. Its optional
   `include_nvml` argument also reads local NVIDIA telemetry when the NVML extra is installed.
+  Set `api_key_env` to the name of an environment variable when metrics require bearer auth.
 - `probe_inference_endpoint`: active; sends one bounded inference POST and says so in its tool
   description.
 
@@ -240,6 +254,9 @@ Core diagnosis only sends `GET` to `/metrics` and never follows redirects. Optio
 uses device-query APIs only. Neither path calls admin or mutation endpoints, retains history, or
 changes server or GPU configuration. The separately named `probe` command performs one explicitly
 requested inference `POST`, which consumes compute but does not alter configuration.
+
+Authentication values are read from environment variables, used only for request headers, and are
+not written to text or JSON reports.
 
 ## Sources
 

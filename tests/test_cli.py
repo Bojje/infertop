@@ -233,7 +233,7 @@ def test_nvml_is_rejected_for_offline_fixture(capsys) -> None:
     assert "--nvml is only valid with a live endpoint" in capsys.readouterr().err
 
 
-def test_live_nvml_flag_is_forwarded_to_collector(capsys, monkeypatch) -> None:
+def test_live_options_and_api_key_are_forwarded_to_collector(capsys, monkeypatch) -> None:
     observation = collect_files(FIXTURES / "healthy.prom")
     received: dict[str, object] = {}
 
@@ -242,10 +242,24 @@ def test_live_nvml_flag_is_forwarded_to_collector(capsys, monkeypatch) -> None:
         return observation
 
     monkeypatch.setattr("infertop.cli.collect_endpoint", collect)
+    monkeypatch.setenv("METRICS_TOKEN", "metrics-secret")
 
-    exit_code = main(["diagnose", "http://localhost:8000", "--nvml", "--samples", "2"])
+    exit_code = main(
+        [
+            "diagnose",
+            "http://localhost:8000",
+            "--nvml",
+            "--samples",
+            "2",
+            "--api-key-env",
+            "METRICS_TOKEN",
+        ]
+    )
 
+    output = capsys.readouterr().out
     assert exit_code == 0
     assert received["include_nvml"] is True
     assert received["sample_count"] == 2
-    assert "Engine: vllm" in capsys.readouterr().out
+    assert received["api_key"] == "metrics-secret"
+    assert "Engine: vllm" in output
+    assert "metrics-secret" not in output
