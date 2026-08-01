@@ -1,0 +1,80 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "matrix",
+    "result": [
+      {
+        "metric": {
+          "__name__": "vllm:num_requests_running",
+          "job": "vllm",
+          "instance": "inference:8000",
+          "model_name": "Qwen3-0.6B"
+        },
+        "values": [[1000, "2"], [1010, "4"], [1020, "4"]]
+      },
+      {
+        "metric": {
+          "__name__": "vllm:num_requests_waiting",
+          "job": "vllm",
+          "instance": "inference:8000",
+          "model_name": "Qwen3-0.6B"
+        },
+        "values": [[1000, "0"], [1010, "2"], [1020, "5"]]
+      },
+      {
+        "metric": {
+          "__name__": "vllm:kv_cache_usage_perc",
+          "job": "vllm",
+          "instance": "inference:8000",
+          "model_name": "Qwen3-0.6B"
+        },
+        "values": [[1000, "0.80"], [1010, "0.93"], [1020, "0.97"]]
+      },
+      {
+        "metric": {
+          "__name__": "vllm:num_preemptions_total",
+          "job": "vllm",
+          "instance": "inference:8000",
+          "model_name": "Qwen3-0.6B"
+        },
+        "values": [[1000, "10"], [1010, "12"], [1020, "17"]]
+      },
+      {
+        "metric": {
+          "__name__": "vllm:prefix_cache_queries_total",
+          "job": "vllm",
+          "instance": "inference:8000",
+          "model_name": "Qwen3-0.6B"
+        },
+        "values": [[1000, "100"], [1010, "120"], [1020, "140"]]
+      },
+      {
+        "metric": {
+          "__name__": "vllm:prefix_cache_hits_total",
+          "job": "vllm",
+          "instance": "inference:8000",
+          "model_name": "Qwen3-0.6B"
+        },
+        "values": [[1000, "30"], [1010, "31"], [1020, "32"]]
+      },
+      {
+        "metric": {
+          "__name__": "vllm:prompt_tokens_total",
+          "job": "vllm",
+          "instance": "inference:8000",
+          "model_name": "Qwen3-0.6B"
+        },
+        "values": [[1000, "1000"], [1010, "1300"], [1020, "1600"]]
+      },
+      {
+        "metric": {
+          "__name__": "vllm:generation_tokens_total",
+          "job": "vllm",
+          "instance": "inference:8000",
+          "model_name": "Qwen3-0.6B"
+        },
+        "values": [[1000, "2000"], [1010, "2400"], [1020, "2800"]]
+      }
+    ]
+  }
+}

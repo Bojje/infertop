@@ -8,6 +8,7 @@ from typing import Any
 
 from infertop.collector import collect_endpoint
 from infertop.probe import probe_endpoint
+from infertop.prometheus_api import collect_prometheus_range, parse_range_time
 from infertop.report import render_json
 from infertop.rules import diagnose
 
@@ -57,6 +58,30 @@ def probe_inference_endpoint_result(
     ).to_dict()
 
 
+def diagnose_prometheus_range_result(
+    endpoint: str,
+    *,
+    start: str,
+    end: str,
+    step_seconds: float = 15.0,
+    timeout_seconds: float = 5.0,
+    labels: dict[str, str] | None = None,
+    api_key_env: str = "INFERTOP_API_KEY",
+) -> dict[str, Any]:
+    """Return deterministic findings from a read-only Prometheus range query."""
+
+    observation = collect_prometheus_range(
+        endpoint,
+        start=parse_range_time(start),
+        end=parse_range_time(end),
+        step_seconds=step_seconds,
+        timeout_seconds=timeout_seconds,
+        labels=labels,
+        api_key=os.environ.get(api_key_env),
+    )
+    return json.loads(render_json(observation, diagnose(observation)))
+
+
 def create_server() -> Any:
     """Create the optional FastMCP server without loading MCP in core installs."""
 
@@ -69,7 +94,8 @@ def create_server() -> Any:
         "infertop",
         instructions=(
             "Diagnose vLLM and SGLang endpoints with deterministic, evidence-backed rules. "
-            "diagnose_endpoint is read-only. probe_inference_endpoint sends one bounded request."
+            "Metrics and Prometheus diagnosis tools are read-only. "
+            "probe_inference_endpoint sends one bounded request."
         ),
     )
 
@@ -113,6 +139,28 @@ def create_server() -> Any:
             max_tokens=max_tokens,
             api_key_env=api_key_env,
             timeout_seconds=timeout_seconds,
+        )
+
+    @server.tool()
+    def diagnose_prometheus_range(
+        endpoint: str,
+        start: str,
+        end: str,
+        step_seconds: float = 15.0,
+        timeout_seconds: float = 5.0,
+        labels: dict[str, str] | None = None,
+        api_key_env: str = "INFERTOP_API_KEY",
+    ) -> dict[str, Any]:
+        """Read a bounded Prometheus range; use labels to select one inference endpoint."""
+
+        return diagnose_prometheus_range_result(
+            endpoint,
+            start=start,
+            end=end,
+            step_seconds=step_seconds,
+            timeout_seconds=timeout_seconds,
+            labels=labels,
+            api_key_env=api_key_env,
         )
 
     return server

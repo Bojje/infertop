@@ -12,6 +12,7 @@ from infertop import __version__
 from infertop.collector import CollectionError, collect_endpoint, collect_file_series, collect_files
 from infertop.probe import ProbeError, probe_endpoint
 from infertop.prometheus import MetricsParseError
+from infertop.prometheus_api import collect_prometheus_range, parse_range_time
 from infertop.report import render_json, render_probe_json, render_probe_text, render_text
 from infertop.rules import Finding, Severity, diagnose
 
@@ -35,6 +36,13 @@ def _gpu_indices(value: str) -> tuple[int, ...]:
     if tuple(sorted(set(indices))) != indices:
         raise argparse.ArgumentTypeError("GPU indices must be unique and sorted")
     return indices
+
+
+def _prometheus_label(value: str) -> tuple[str, str]:
+    name, separator, label_value = value.partition("=")
+    if not separator or not name:
+        raise argparse.ArgumentTypeError("Prometheus labels must use NAME=VALUE")
+    return name, label_value
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -90,6 +98,35 @@ def _parser() -> argparse.ArgumentParser:
         "--api-key-env",
         default="INFERTOP_API_KEY",
         help="environment variable containing a metrics bearer token (default: INFERTOP_API_KEY)",
+    )
+    diagnose_parser.add_argument(
+        "--prometheus",
+        action="store_true",
+        help="treat target as a Prometheus server and query a historical range",
+    )
+    diagnose_parser.add_argument(
+        "--start",
+        type=parse_range_time,
+        help="Prometheus range start as an RFC3339 or Unix timestamp",
+    )
+    diagnose_parser.add_argument(
+        "--end",
+        type=parse_range_time,
+        help="Prometheus range end as an RFC3339 or Unix timestamp",
+    )
+    diagnose_parser.add_argument(
+        "--step",
+        type=float,
+        default=None,
+        help="Prometheus query resolution in seconds (default: 15, maximum 120 samples)",
+    )
+    diagnose_parser.add_argument(
+        "--prometheus-label",
+        type=_prometheus_label,
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="exact Prometheus series label filter; repeat to select one endpoint",
     )
     diagnose_parser.add_argument(
         "--fail-on",
@@ -182,7 +219,37 @@ def diagnosis_exit_code(
 
 
 def _run_diagnose(args: argparse.Namespace) -> tuple[str, int]:
-    if args.target.startswith(("http://", "https://")):
+    if args.prometheus:
+        if args.start is None or args.end is None:
+            raise CollectionError("--prometheus requires --start and --end")
+        if args.previous is not None or args.intermediate:
+            raise CollectionError(
+                "--previous and --intermediate cannot be combined with --prometheus"
+            )
+        if args.nvml or args.tp_gpus:
+            raise CollectionError("local GPU evidence cannot be combined with --prometheus")
+        if args.interval != 1.0 or args.samples != 3:
+            raise CollectionError("--interval and --samples cannot be combined with --prometheus")
+        label_names = [name for name, _value in args.prometheus_label]
+        if len(label_names) != len(set(label_names)):
+            raise CollectionError("each --prometheus-label name may be specified only once")
+        observation = collect_prometheus_range(
+            args.target,
+            start=args.start,
+            end=args.end,
+            step_seconds=args.step if args.step is not None else 15.0,
+            timeout_seconds=args.timeout,
+            labels=dict(args.prometheus_label),
+            api_key=os.environ.get(args.api_key_env),
+        )
+    elif (
+        args.start is not None
+        or args.end is not None
+        or args.step is not None
+        or args.prometheus_label
+    ):
+        raise CollectionError("--start, --end, --step, and --prometheus-label require --prometheus")
+    elif args.target.startswith(("http://", "https://")):
         if args.previous is not None or args.intermediate:
             raise CollectionError(
                 "--previous and --intermediate are only valid with a metrics file"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from functools import cache
 
 from infertop.prometheus import Sample, parse_metrics
 from infertop.schema import Distribution, InferenceSnapshot
@@ -63,6 +64,17 @@ _SGLANG_ALIASES = {
     ),
     "prefill": (),
     "decode": (),
+}
+
+_HISTOGRAM_FIELDS = {
+    "e2e",
+    "queue",
+    "ttft",
+    "tpot",
+    "prompt",
+    "generation",
+    "prefill",
+    "decode",
 }
 
 
@@ -261,7 +273,21 @@ def normalize_metrics(
 ) -> InferenceSnapshot:
     """Detect a supported engine and normalize one metrics scrape."""
 
-    samples = parse_metrics(text)
+    return normalize_samples(
+        parse_metrics(text),
+        source=source,
+        captured_at=captured_at,
+    )
+
+
+def normalize_samples(
+    samples: tuple[Sample, ...],
+    *,
+    source: str,
+    captured_at: float | None = None,
+) -> InferenceSnapshot:
+    """Detect and normalize already-parsed Prometheus samples."""
+
     names = {sample.name for sample in samples}
     engines = {
         engine
@@ -285,3 +311,24 @@ def normalize_metrics(
         source=source,
         captured_at=_captured_at(captured_at),
     )
+
+
+@cache
+def supported_metric_names() -> tuple[str, ...]:
+    """Return every raw metric series understood by the normalizers."""
+
+    names: set[str] = set()
+    for aliases in (_VLLM_ALIASES, _SGLANG_ALIASES):
+        for field, base_names in aliases.items():
+            for base_name in base_names:
+                if field in _HISTOGRAM_FIELDS:
+                    names.update(
+                        {
+                            f"{base_name}_bucket",
+                            f"{base_name}_count",
+                            f"{base_name}_sum",
+                        }
+                    )
+                else:
+                    names.add(base_name)
+    return tuple(sorted(names))

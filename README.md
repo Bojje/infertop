@@ -58,6 +58,29 @@ A successful report exits `0` by default. With `--fail-on`, findings at or above
 `info`, `warning`, or `critical` threshold exit `1`; collection, parsing, and usage errors exit `2`.
 `INCONCLUSIVE` has `info` severity, so `--fail-on info` also enforces sufficient telemetry.
 
+## Historical Prometheus
+
+Point `diagnose` at a Prometheus server when the live incident has already passed:
+
+```console
+infertop diagnose https://prometheus.example.com --prometheus \
+  --start 2026-08-01T12:00:00Z --end 2026-08-01T12:05:00Z --step 15 \
+  --prometheus-label job=vllm --prometheus-label instance=inference:8000
+```
+
+This performs one read-only `GET /api/v1/query_range` for the exact vLLM and SGLang series the
+normalizers understand. Start and end accept RFC3339 values with an explicit offset or Unix
+seconds. The range is hard-capped at 120 snapshots; increase `--step` for a longer window.
+
+Use exact `--prometheus-label NAME=VALUE` filters to select one inference endpoint. If the query
+returns multiple `job`/`instance` pairs, `infertop` stops instead of combining them into a false
+verdict. The normal coverage and `Blocked` lines identify unavailable canonical metric families,
+so historical reports remain explicit when retention or scrape configuration omitted evidence.
+
+Bearer authentication uses the same `--api-key-env` mechanism as live collection. No token is put
+in the URL or report, redirects are disabled, and `infertop` does not create recording rules,
+persist results, or call the Prometheus management API.
+
 ## Live watch
 
 The optional Textual view reruns the same diagnosis engine over a rolling sample window:
@@ -183,6 +206,9 @@ It exposes:
   `tensor_parallel_gpu_indices` accepts an explicit local TP group and performs the same read-only
   topology diagnosis as `--tp-gpus`.
   Set `api_key_env` to the name of an environment variable when metrics require bearer auth.
+- `diagnose_prometheus_range`: read-only; queries a bounded explicit historical range. Pass exact
+  `labels` such as `{"job": "vllm", "instance": "inference:8000"}` to select one target, and
+  keep bearer credentials in the environment named by `api_key_env`.
 - `probe_inference_endpoint`: active; sends one bounded inference POST and says so in its tool
   description.
 
@@ -270,17 +296,20 @@ uv run --extra nvml infertop diagnose http://localhost:8000 --nvml
   long-prompt arrivals. The active probe sees one request, not historical causality.
 - Engine metrics do not explain kernel, network, client, or model-quality faults. Optional NVML
   adds coarse local utilization evidence, not kernel-level profiling or hardware fault diagnosis.
-- Historical Prometheus is a later slice.
+- Historical Prometheus reads only the supported metric names and classic histogram series. It
+  does not query exemplars, native histograms, traces, logs, or recording rules; retention gaps are
+  reported as missing diagnostic coverage rather than inferred.
 - SGLang's documented TP/PP/MoE/DP rank labels are normalized. Custom scheduler-rank label names
   are not yet classified and should be verified against JSON output before capacity decisions.
 - Thresholds are conservative starting points, not universal SLOs or capacity targets.
 
 ## Safety
 
-Core diagnosis only sends `GET` to `/metrics` and never follows redirects. Optional NVML collection
-uses device-query APIs only. Neither path calls admin or mutation endpoints, retains history, or
-changes server or GPU configuration. The separately named `probe` command performs one explicitly
-requested inference `POST`, which consumes compute but does not alter configuration.
+Core diagnosis only sends `GET` requests to `/metrics` or Prometheus `/api/v1/query_range` and
+never follows redirects. Optional NVML collection uses device-query APIs only. These paths do not
+call admin or mutation endpoints, retain history, or change server or GPU configuration. The
+separately named `probe` command performs one explicitly requested inference `POST`, which consumes
+compute but does not alter configuration.
 
 Authentication values are read from environment variables, used only for request headers, and are
 not written to text or JSON reports.
@@ -294,6 +323,8 @@ Metric names and aliases track the
 [per-request metrics](https://docs.vllm.ai/en/latest/features/per_request_metrics/) documentation,
 plus the
 [SGLang production metrics](https://docs.sglang.io/docs/references/production_metrics) reference.
+Historical range collection follows the
+[Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries).
 Hardware fields follow NVIDIA's
 [NVML device-query API](https://docs.nvidia.com/deploy/nvml-api/group__nvmlDeviceQueries.html) and
 [utilization definitions](https://docs.nvidia.com/deploy/nvml-api/structnvmlUtilization__t.html).
