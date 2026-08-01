@@ -12,9 +12,14 @@ from textual.containers import VerticalScroll
 from textual.widgets import Footer, Header, Static
 
 from infertop.collector import CollectionError, scrape_endpoint_async
+from infertop.hardware import collect_nvidia_topology
 from infertop.report import render_text
 from infertop.rules import diagnose
-from infertop.schema import InferenceObservation, InferenceSnapshot
+from infertop.schema import (
+    InferenceObservation,
+    InferenceSnapshot,
+    validate_tensor_parallel_topology,
+)
 
 Scraper = Callable[..., Awaitable[InferenceSnapshot]]
 
@@ -56,6 +61,7 @@ class WatchApp(App[None]):
         sample_count: int = 3,
         include_nvml: bool = False,
         api_key: str | None = None,
+        tensor_parallel_gpu_indices: tuple[int, ...] = (),
         scraper: Scraper = scrape_endpoint_async,
         start_polling: bool = True,
     ) -> None:
@@ -70,6 +76,9 @@ class WatchApp(App[None]):
         self.sample_count = sample_count
         self.include_nvml = include_nvml
         self.api_key = api_key
+        self.tensor_parallel_gpu_indices = tensor_parallel_gpu_indices
+        self.topology = collect_nvidia_topology() if self.tensor_parallel_gpu_indices else None
+        validate_tensor_parallel_topology(self.topology, self.tensor_parallel_gpu_indices)
         self._scraper = scraper
         self._start_polling = start_polling
         self._snapshots: deque[InferenceSnapshot] = deque(maxlen=sample_count)
@@ -112,13 +121,19 @@ class WatchApp(App[None]):
         self._snapshots.append(snapshot)
         snapshots = tuple(self._snapshots)
         if len(snapshots) == 1:
-            observation = InferenceObservation(current=snapshot)
+            observation = InferenceObservation(
+                current=snapshot,
+                topology=self.topology,
+                tensor_parallel_gpu_indices=self.tensor_parallel_gpu_indices,
+            )
         else:
             observation = InferenceObservation(
                 previous=snapshots[0],
                 intermediate=snapshots[1:-1],
                 current=snapshots[-1],
                 interval_seconds=snapshots[-1].captured_at - snapshots[0].captured_at,
+                topology=self.topology,
+                tensor_parallel_gpu_indices=self.tensor_parallel_gpu_indices,
             )
         findings = diagnose(observation)
         current = observation.current
@@ -150,6 +165,7 @@ def run_watch(
     sample_count: int = 3,
     include_nvml: bool = False,
     api_key: str | None = None,
+    tensor_parallel_gpu_indices: tuple[int, ...] = (),
 ) -> None:
     WatchApp(
         endpoint,
@@ -158,4 +174,5 @@ def run_watch(
         sample_count=sample_count,
         include_nvml=include_nvml,
         api_key=api_key,
+        tensor_parallel_gpu_indices=tensor_parallel_gpu_indices,
     ).run()

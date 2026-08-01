@@ -132,6 +132,16 @@ device-memory active time measures theoretical bandwidth saturation.
 `--nvml` is deliberately rejected for saved fixtures. Do not use it against a remote endpoint
 unless that endpoint is actually served by the local GPUs printed in the report.
 
+For a local multi-GPU server, declare the exact tensor-parallel membership to enable R7:
+
+```console
+infertop diagnose http://localhost:8000 --tp-gpus 0,1
+```
+
+This performs one read-only `nvidia-smi topo -m` query. `infertop` never assumes that every GPU in
+the machine belongs to the endpoint; it warns only when an explicitly declared pair has an observed
+`SYS`, `NODE`, or `PHB` link. Do not use this option for a remote endpoint.
+
 ## Rules
 
 | Rule | Evidence | Verdicts |
@@ -142,6 +152,7 @@ unless that endpoint is actually served by the local GPUs printed in the report.
 | R4: sequence lengths | prompt/output tokens p50/p95 | prefill-bound or decode-bound |
 | R5: batch efficiency | three-sample running/waiting depth, KV headroom, token rates | batch headroom or likely concurrency ceiling |
 | R6: hardware correlation | sustained local GPU compute/device-memory activity plus latency | compute pressure, likely memory-bound decode, or unexplained GPU idleness |
+| R7: TP topology | explicit TP GPU indices plus local `nvidia-smi topo -m` links | slow host/NUMA links inside a declared TP group |
 
 The starting thresholds live in `Thresholds` and are printed beside evidence. Rules are pure
 functions over `InferenceObservation`, so they can be tested without a GPU.
@@ -163,6 +174,8 @@ It exposes:
 
 - `diagnose_endpoint`: read-only; performs repeated GET scrapes of `/metrics`. Its optional
   `include_nvml` argument also reads local NVIDIA telemetry when the NVML extra is installed.
+  `tensor_parallel_gpu_indices` accepts an explicit local TP group and performs the same read-only
+  topology diagnosis as `--tp-gpus`.
   Set `api_key_env` to the name of an environment variable when metrics require bearer auth.
 - `probe_inference_endpoint`: active; sends one bounded inference POST and says so in its tool
   description.

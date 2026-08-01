@@ -194,3 +194,22 @@ def test_collects_topology_with_read_only_nvidia_smi_command() -> None:
             },
         )
     ]
+
+
+def test_reports_declared_tp_topology_in_text_and_json() -> None:
+    topology = parse_nvidia_topology((TOPOLOGY_FIXTURES / "cross_numa.txt").read_text())
+    observation = InferenceObservation(
+        current=InferenceSnapshot(source="fixture", captured_at=0, engine="vllm"),
+        topology=topology,
+        tensor_parallel_gpu_indices=(0, 2),
+    )
+    findings = diagnose(observation)
+
+    text = render_text(observation, findings)
+    payload = json.loads(render_json(observation, findings))
+
+    assert "Topology: local nvidia-smi (declared TP GPUs: GPU0, GPU2)" in text
+    assert "GPU 0 <-> GPU 2: SYS" in text
+    assert payload["hardware"]["source"] == "local_nvidia_smi"
+    assert payload["hardware"]["topology"]["tensor_parallel_gpu_indices"] == [0, 2]
+    assert payload["findings"][0]["rule_id"] == "R7_SLOW_TP_TOPOLOGY"

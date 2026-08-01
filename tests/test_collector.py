@@ -12,7 +12,7 @@ from infertop.collector import (
     collect_file_series,
     scrape_endpoint_async,
 )
-from infertop.schema import GpuDeviceSnapshot
+from infertop.schema import GpuDeviceSnapshot, GpuTopology, GpuTopologyLink
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -104,3 +104,54 @@ def test_async_scraper_supports_cancellable_tui_collection() -> None:
         assert snapshot.requests_running == 4
 
     asyncio.run(exercise())
+
+
+def test_live_collector_queries_topology_once_for_explicit_tp_group(monkeypatch) -> None:
+    topology = GpuTopology(
+        gpu_indices=(0, 1),
+        links=(GpuTopologyLink(first_gpu=0, second_gpu=1, kind="NV4"),),
+    )
+    topology_queries = 0
+
+    def collect_topology() -> GpuTopology:
+        nonlocal topology_queries
+        topology_queries += 1
+        return topology
+
+    monkeypatch.setattr("infertop.collector.collect_nvidia_topology", collect_topology)
+    observation = collect_endpoint(
+        "http://localhost:8000",
+        interval_seconds=0.001,
+        sample_count=2,
+        tensor_parallel_gpu_indices=(0, 1),
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, text="vllm:num_requests_running 1")
+        ),
+    )
+
+    assert topology_queries == 1
+    assert observation.topology == topology
+    assert observation.tensor_parallel_gpu_indices == (0, 1)
+
+
+def test_live_collector_rejects_unknown_tp_gpu_before_metrics_request(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infertop.collector.collect_nvidia_topology",
+        lambda: GpuTopology(gpu_indices=(0,)),
+    )
+    metrics_requests = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal metrics_requests
+        metrics_requests += 1
+        return httpx.Response(200, text="vllm:num_requests_running 1")
+
+    with pytest.raises(ValueError, match="unknown topology devices: GPU1"):
+        collect_endpoint(
+            "http://localhost:8000",
+            sample_count=2,
+            tensor_parallel_gpu_indices=(0, 1),
+            transport=httpx.MockTransport(handler),
+        )
+
+    assert metrics_requests == 0

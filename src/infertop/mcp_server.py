@@ -20,6 +20,7 @@ def diagnose_endpoint_result(
     sample_count: int = 3,
     include_nvml: bool = False,
     api_key_env: str = "INFERTOP_API_KEY",
+    tensor_parallel_gpu_indices: list[int] | None = None,
 ) -> dict[str, Any]:
     """Return structured deterministic findings from read-only metrics scrapes."""
 
@@ -30,6 +31,7 @@ def diagnose_endpoint_result(
         sample_count=sample_count,
         include_nvml=include_nvml,
         api_key=os.environ.get(api_key_env),
+        tensor_parallel_gpu_indices=tuple(tensor_parallel_gpu_indices or ()),
     )
     return json.loads(render_json(observation, diagnose(observation)))
 
@@ -79,8 +81,9 @@ def create_server() -> Any:
         sample_count: int = 3,
         include_nvml: bool = False,
         api_key_env: str = "INFERTOP_API_KEY",
+        tensor_parallel_gpu_indices: list[int] | None = None,
     ) -> dict[str, Any]:
-        """Read /metrics; optionally use an env token and fuse read-only local NVML."""
+        """Read metrics; optionally use env auth, local NVML, and an explicit TP topology."""
 
         return diagnose_endpoint_result(
             endpoint,
@@ -89,6 +92,7 @@ def create_server() -> Any:
             sample_count=sample_count,
             include_nvml=include_nvml,
             api_key_env=api_key_env,
+            tensor_parallel_gpu_indices=tensor_parallel_gpu_indices,
         )
 
     @server.tool()
