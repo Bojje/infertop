@@ -192,6 +192,8 @@ def api_base_url(endpoint: str) -> str:
     parsed = urlsplit(endpoint)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ProbeError("endpoint must be an http(s) URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ProbeError("put endpoint credentials in an environment variable, not the URL")
     path = parsed.path.rstrip("/")
     if path.endswith("/metrics"):
         path = path[: -len("/metrics")]

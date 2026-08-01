@@ -298,6 +298,10 @@ The ordered implementation plan and release gates live in [ROADMAP.md](ROADMAP.m
 publication is always a separate, manually confirmed workflow action; pushing a tag does not
 publish a package.
 
+See [Compatibility and metric shapes](docs/compatibility.md) for the tested engine/input matrix,
+[SECURITY.md](SECURITY.md) for network, auth, and data-handling boundaries, and
+[CONTRIBUTING.md](CONTRIBUTING.md) for fixture-first contribution requirements.
+
 To verify the optional MCP interface:
 
 ```console

@@ -22,6 +22,8 @@ def test_api_base_url_accepts_server_metrics_and_v1_urls() -> None:
     assert api_base_url("http://localhost:8000/metrics") == "http://localhost:8000/v1"
     assert api_base_url("https://example.test/prefix/v1") == "https://example.test/prefix/v1"
     assert api_base_url("https://example.test?token=secret") == "https://example.test/v1"
+    with pytest.raises(ProbeError, match="environment variable"):
+        api_base_url("https://user:password@example.test")
 
 
 def test_probe_discovers_model_sends_bounded_request_and_parses_metrics() -> None:

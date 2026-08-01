@@ -75,6 +75,30 @@ def test_collection_error_does_not_leak_bearer_token() -> None:
     assert "metrics-secret" not in str(captured.value)
 
 
+def test_live_source_and_errors_redact_url_credentials_and_query_values() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.query == b"tenant=query-secret"
+        return httpx.Response(200, text="vllm:num_requests_running 1")
+
+    observation = collect_endpoint(
+        "https://user:password@example.test?tenant=query-secret",
+        interval_seconds=0.001,
+        sample_count=2,
+        transport=httpx.MockTransport(handler),
+    )
+    assert observation.current.source == "https://example.test/metrics"
+
+    with pytest.raises(CollectionError) as captured:
+        collect_endpoint(
+            "https://user:password@example.test?tenant=query-secret",
+            sample_count=2,
+            transport=httpx.MockTransport(lambda _request: httpx.Response(401)),
+        )
+    message = str(captured.value)
+    assert "password" not in message
+    assert "query-secret" not in message
+
+
 def test_offline_series_interval_is_between_adjacent_snapshots() -> None:
     observation = collect_file_series(
         (

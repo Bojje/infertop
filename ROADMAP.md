@@ -105,11 +105,14 @@ always bounded and opt-in.
 
 ## Milestone 7: documentation and compatibility
 
-- Put a real captured report and 30-second demo in the README.
-- Publish an engine/version/metric compatibility matrix, authentication and security guidance,
+Status: compatibility, auth/security, limitations, fixture capture, contribution guidance, and
+clean pip/pipx/uvx checks are implemented. Real captures and the 30-second GIF remain pending.
+
+- [ ] Put a real captured report and 30-second demo in the README.
+- [x] Publish an engine/version/metric compatibility matrix, authentication and security guidance,
   fixture capture instructions, and an honest limitations section.
-- Keep every output finding tied to observed evidence, thresholds, and actionable remediation.
-- Verify core installation with `uvx`, `pip`, and `pipx` without optional TUI, NVML, or MCP
+- [x] Keep every output finding tied to observed evidence, thresholds, and actionable remediation.
+- [x] Verify core installation with `uvx`, `pip`, and `pipx` without optional TUI, NVML, or MCP
   dependencies.
 
 Exit criterion: a new user can install, diagnose, interpret limitations, and reproduce fixtures
