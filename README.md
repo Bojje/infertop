@@ -35,6 +35,16 @@ Blocked: R1 (missing latency histograms); R5 (requires at least 3 samples)
 
 Machine-readable output is available with `--json`.
 
+For automation, opt into severity-based exit codes:
+
+```console
+infertop diagnose http://localhost:8000 --json --fail-on warning
+```
+
+A successful report exits `0` by default. With `--fail-on`, findings at or above the selected
+`info`, `warning`, or `critical` threshold exit `1`; collection, parsing, and usage errors exit `2`.
+`INCONCLUSIVE` has `info` severity, so `--fail-on info` also enforces sufficient telemetry.
+
 ## Live watch
 
 The optional Textual view reruns the same diagnosis engine over a rolling sample window:
