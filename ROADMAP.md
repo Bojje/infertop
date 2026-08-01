@@ -30,13 +30,16 @@ publish it.
 
 ## Milestone 2: recorded scenario fixtures
 
-- Add a small bounded async load generator for healthy traffic, burst overload, long-prompt/short-
+Status: bounded load generation, raw capture, provenance manifests, and fake-endpoint tests are in
+place. Captures from a real vLLM process and their golden findings are still pending.
+
+- [x] Add a small bounded async load generator for healthy traffic, burst overload, long-prompt/short-
   output prefill pressure, short-prompt/long-output decode pressure, and KV pressure.
-- Add a capture utility that records chronological `/metrics` scrapes plus engine, engine version,
+- [x] Add a capture utility that records chronological `/metrics` scrapes plus engine, engine version,
   model, command, interval, and scenario provenance.
-- Run the scenarios against a small vLLM model such as Qwen3-0.6B on the local RTX 5080 when the
+- [ ] Run the scenarios against a small vLLM model such as Qwen3-0.6B on the local RTX 5080 when the
   environment is ready.
-- Check in compact real captures and golden top-finding tests. Keep synthetic fixtures in an
+- [ ] Check in compact real captures and golden top-finding tests. Keep synthetic fixtures in an
   explicitly labelled directory for edge cases that are difficult or unsafe to induce.
 
 Exit criterion: each primary diagnosis has at least one recorded fixture and a golden assertion,

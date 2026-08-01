@@ -203,6 +203,10 @@ The checked-in fixtures use real vLLM and SGLang exposition names and shapes, bu
 hand-shaped representative snapshots. They are not mislabeled as captures. Replace or augment them
 with recorded local load scenarios before making benchmark claims.
 
+The repository includes bounded developer tools for producing those captures. See
+[Recording scenario fixtures](docs/fixture-capture.md) for the shaped traffic presets, exact raw
+scrape format, provenance manifest, safety limits, and review checklist.
+
 ## Development
 
 ```console
