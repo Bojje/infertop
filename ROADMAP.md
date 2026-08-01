@@ -7,13 +7,12 @@ serving-engine setup never blocks pure rule development.
 ## Current baseline
 
 The repository already provides vLLM and SGLang normalization, multi-snapshot observations,
-rules R1-R6, text and JSON reports, a live Textual view, optional local NVML evidence, a bounded
+rules R1-R7, text and JSON reports, a live Textual view, optional local NVML evidence, a bounded
 OpenAI-compatible request probe, MCP tools, bearer authentication, and severity-based exit codes.
 
 The checked-in Prometheus fixtures are representative hand-shaped inputs. They exercise the rule
-engine credibly, but they are not presented as real captures. Historical Prometheus queries,
-multi-rank SGLang aggregation, and tensor-parallel topology diagnosis remain intentionally
-unsupported until the milestones below land.
+engine credibly, but they are not presented as real captures. Real vLLM scenario captures and
+multi-GPU topology validation remain pending on suitable live environments.
 
 ## Milestone 1: release safety
 
@@ -69,7 +68,7 @@ and rank-labelled histogram regressions are implemented with a golden multi-rank
 - [x] Add rank-labelled current and historical SGLang fixtures.
 - [x] Distinguish replicated counters/histograms from truly sharded gauges.
 - [x] De-duplicate replicated values and aggregate shard-local values without hiding per-rank pressure.
-- Document the supported SGLang metric/version shapes and report inconclusive coverage for unknown
+- [x] Document the supported SGLang metric/version shapes and report inconclusive coverage for unknown
   layouts.
 
 Exit criterion: equivalent single-rank and multi-rank workloads normalize to equivalent canonical
@@ -77,12 +76,15 @@ rates and quantiles, with regression tests preventing double counting.
 
 ## Milestone 5: historical Prometheus input
 
-- Add a read-only Prometheus HTTP API adapter using the existing `httpx` dependency.
-- Support an explicit time range and step, bearer credentials from an environment variable, and
+Status: a bounded GET-only range adapter, exact target filters, bearer auth, CLI and MCP entry
+points, a saved API payload, and a golden diagnosis are implemented.
+
+- [x] Add a read-only Prometheus HTTP API adapter using the existing `httpx` dependency.
+- [x] Support an explicit time range and step, bearer credentials from an environment variable, and
   the same canonical observation consumed by live and fixture sources.
-- Use mocked API payloads and golden reports in CI; do not add storage, recording rules, or a
+- [x] Use mocked API payloads and golden reports in CI; do not add storage, recording rules, or a
   dashboard layer.
-- Make query coverage and unavailable metric families visible in reports.
+- [x] Make query coverage and unavailable metric families visible in reports.
 
 Exit criterion: a saved fixture, a live engine, and a Prometheus range can drive the same pure
 rules with equivalent evidence semantics.

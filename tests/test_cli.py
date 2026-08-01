@@ -279,3 +279,68 @@ def test_live_options_and_api_key_are_forwarded_to_collector(capsys, monkeypatch
     assert received["api_key"] == "metrics-secret"
     assert "Engine: vllm" in output
     assert "metrics-secret" not in output
+
+
+def test_prometheus_options_and_token_are_forwarded(capsys, monkeypatch) -> None:
+    observation = collect_files(FIXTURES / "healthy.prom")
+    received: dict[str, object] = {}
+
+    def collect(_target: str, **kwargs: object):
+        received.update(kwargs)
+        return observation
+
+    monkeypatch.setattr("infertop.cli.collect_prometheus_range", collect)
+    monkeypatch.setenv("PROMETHEUS_TOKEN", "prometheus-secret")
+
+    exit_code = main(
+        [
+            "diagnose",
+            "https://prometheus.example.com",
+            "--prometheus",
+            "--start",
+            "2026-08-01T12:00:00Z",
+            "--end",
+            "2026-08-01T12:01:00Z",
+            "--step",
+            "10",
+            "--prometheus-label",
+            "job=vllm",
+            "--prometheus-label",
+            "instance=inference:8000",
+            "--api-key-env",
+            "PROMETHEUS_TOKEN",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert received["end"] - received["start"] == 60
+    assert received["step_seconds"] == 10
+    assert received["labels"] == {"job": "vllm", "instance": "inference:8000"}
+    assert received["api_key"] == "prometheus-secret"
+    assert "prometheus-secret" not in output
+
+
+def test_prometheus_requires_an_explicit_range(capsys) -> None:
+    exit_code = main(["diagnose", "http://localhost:9090", "--prometheus"])
+
+    assert exit_code == 2
+    assert "--prometheus requires --start and --end" in capsys.readouterr().err
+
+
+def test_prometheus_rejects_local_gpu_evidence(capsys) -> None:
+    exit_code = main(
+        [
+            "diagnose",
+            "http://localhost:9090",
+            "--prometheus",
+            "--start",
+            "1000",
+            "--end",
+            "1020",
+            "--nvml",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "local GPU evidence cannot be combined" in capsys.readouterr().err
