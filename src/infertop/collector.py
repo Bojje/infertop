@@ -18,7 +18,9 @@ class CollectionError(RuntimeError):
     """Raised when metrics cannot be collected safely."""
 
 
-def _authorization_headers(api_key: str | None) -> dict[str, str]:
+def authorization_headers(api_key: str | None) -> dict[str, str]:
+    """Build bearer headers without putting a credential in a URL or exception message."""
+
     return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 
@@ -59,7 +61,7 @@ def scrape_endpoint(
         with httpx.Client(
             timeout=timeout_seconds,
             follow_redirects=False,
-            headers=_authorization_headers(api_key),
+            headers=authorization_headers(api_key),
             transport=transport,
         ) as client:
             return _scrape(client, url, include_nvml=include_nvml)
@@ -82,7 +84,7 @@ async def scrape_endpoint_async(
         async with httpx.AsyncClient(
             timeout=timeout_seconds,
             follow_redirects=False,
-            headers=_authorization_headers(api_key),
+            headers=authorization_headers(api_key),
             transport=transport,
         ) as client:
             response = await client.get(url)
@@ -115,7 +117,7 @@ def collect_endpoint(
         with httpx.Client(
             timeout=timeout_seconds,
             follow_redirects=False,
-            headers=_authorization_headers(api_key),
+            headers=authorization_headers(api_key),
             transport=transport,
         ) as client:
             for index in range(sample_count):
