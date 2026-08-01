@@ -120,10 +120,14 @@ without reading source code.
 
 ## Milestone 8: explicit release and launch
 
-- With separate maintainer approval, configure the PyPI trusted publisher and manually run the
+Status: the `infertop` name remains unclaimed on PyPI as of the latest check, the fresh version is
+prepared as 0.2.0, and the changelog plus evidence/identity/dry-run/publication gates are documented.
+Trusted-publisher configuration, tagging, publication, and launch still require separate approval.
+
+- [ ] With separate maintainer approval, configure the PyPI trusted publisher and manually run the
   verified release workflow for a fresh tag.
-- Confirm the public artifact from a clean environment before creating launch posts.
-- Launch to Show HN, r/LocalLLaMA, the vLLM community, and later the MCP registry and relevant
+- [ ] Confirm the public artifact from a clean environment before creating launch posts.
+- [ ] Launch to Show HN, r/LocalLLaMA, the vLLM community, and later the MCP registry and relevant
   ecosystem lists. Reference the Red Hat triage runbook that motivated the rule flow.
 
 Exit criterion: the published package matches the tested tag and wheel, installation commands are

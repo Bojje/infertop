@@ -301,6 +301,8 @@ publish a package.
 See [Compatibility and metric shapes](docs/compatibility.md) for the tested engine/input matrix,
 [SECURITY.md](SECURITY.md) for network, auth, and data-handling boundaries, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for fixture-first contribution requirements.
+Maintainers use the separately gated [release checklist](docs/release-checklist.md); no normal push,
+tag push, or merged PR publishes a package.
 
 To verify the optional MCP interface:
 
