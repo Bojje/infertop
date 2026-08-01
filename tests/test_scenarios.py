@@ -6,7 +6,13 @@ import json
 import httpx
 import pytest
 
-from infertop.scenarios import ScenarioError, configured_scenario, run_scenario
+from infertop.scenarios import (
+    DEMO_STAGES,
+    ScenarioError,
+    configured_scenario,
+    run_demo_transition,
+    run_scenario,
+)
 
 
 def test_scenario_applies_bounds_before_sending_requests() -> None:
@@ -87,3 +93,63 @@ def test_scenario_records_safe_failures_without_leaking_auth() -> None:
     assert result.failed == 1
     assert result.requests[0].error == "HTTP 429"
     assert "load-secret" not in json.dumps(result.to_dict())
+
+
+def test_demo_transition_is_fixed_bounded_paced_and_model_is_discovered_once(monkeypatch) -> None:
+    sleeps: list[float] = []
+    requests: list[httpx.Request] = []
+
+    async def no_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "model"}]})
+        body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "id": "completion",
+                "usage": {
+                    "prompt_tokens": len(body["messages"][0]["content"].split()),
+                    "completion_tokens": body["max_tokens"],
+                },
+            },
+        )
+
+    monkeypatch.setattr("infertop.scenarios._async_sleep", no_sleep)
+    result = asyncio.run(
+        run_demo_transition(
+            "http://localhost:8000",
+            api_key="demo-secret",
+            transport=httpx.MockTransport(handler),
+        )
+    )
+
+    assert [stage.stage.name for stage in result.stages] == [
+        "healthy-baseline",
+        "queue-pressure",
+        "healthy-recovery",
+    ]
+    assert result.request_count == 80
+    assert result.requested_output_token_ceiling == 16_896
+    assert result.succeeded == 80
+    assert result.failed == 0
+    assert len(requests) == 81
+    assert sum(request.url.path == "/v1/models" for request in requests) == 1
+    assert sleeps == [float(index) for index in range(1, 8)] * 2
+    assert len({stage.scenario.name for stage in DEMO_STAGES}) == 3
+    assert "demo-secret" not in json.dumps(result.to_dict())
+
+
+def test_scenario_rejects_unbounded_launch_pacing() -> None:
+    with pytest.raises(ScenarioError, match="launch_interval_seconds"):
+        asyncio.run(
+            run_scenario(
+                "http://localhost:8000",
+                configured_scenario("healthy"),
+                model="model",
+                launch_interval_seconds=6,
+            )
+        )

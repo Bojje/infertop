@@ -94,7 +94,7 @@ than a dashboard of unlabeled charts.
 
 ## Active API probe
 
-`diagnose` is GET-only. When you explicitly want to execute one bounded inference request, use
+`diagnose` is GET-only. When you explicitly want to execute a bounded inference request, use
 `probe`:
 
 ```console
@@ -108,6 +108,18 @@ with the completion HTTP round trip. A large residual is reported as unattribute
 engine phases, with network, proxy, API middleware, serialization, and client buffering as places
 to investigate—not as a guessed root cause.
 
+Repeat the exact probe sequentially when one request is too noisy:
+
+```console
+infertop probe http://localhost:8000 --count 5 --max-tokens 8
+```
+
+The repeated report prints p50/p95 for client round trip and every available server phase, plus
+the number of responses that actually contained per-request metrics. It is hard-capped at 10
+requests, 256 requested output tokens per request, 1,024 requested output tokens across the run,
+and 32,768 prompt characters. Bounds are validated before active traffic starts. The default
+remains one request and keeps the original single-request report and JSON shape.
+
 Start vLLM with per-request metrics enabled:
 
 ```console
@@ -115,7 +127,7 @@ vllm serve Qwen/Qwen3-0.6B --enable-per-request-metrics
 ```
 
 For authenticated endpoints, set `INFERTOP_API_KEY`; the CLI intentionally does not accept the
-secret value as an argument. `--max-tokens` has a hard safety ceiling of 256.
+secret value as an argument.
 
 Per-request timing is a probe result, not a workload-wide verdict. Use representative traffic and
 `diagnose` for server-level conclusions.
@@ -209,8 +221,9 @@ It exposes:
 - `diagnose_prometheus_range`: read-only; queries a bounded explicit historical range. Pass exact
   `labels` such as `{"job": "vllm", "instance": "inference:8000"}` to select one target, and
   keep bearer credentials in the environment named by `api_key_env`.
-- `probe_inference_endpoint`: active; sends one bounded inference POST and says so in its tool
-  description.
+- `probe_inference_endpoint`: active; sends one or, with `repeat_count`, at most ten sequential
+  inference POSTs. It applies the same per-request and total output ceilings as the CLI and says so
+  in its tool description.
 
 Example client configuration:
 
@@ -251,6 +264,25 @@ with recorded local load scenarios before making benchmark claims.
 The repository includes bounded developer tools for producing those captures. See
 [Recording scenario fixtures](docs/fixture-capture.md) for the shaped traffic presets, exact raw
 scrape format, provenance manifest, safety limits, and review checklist.
+
+## Deterministic watch demo traffic
+
+Start `infertop watch` in one terminal, then explicitly run the fixed three-stage demo in another:
+
+```console
+uv run python scripts/load_scenario.py demo-transition http://localhost:8000 \
+  --confirm-active-load
+```
+
+The script prints its ceiling before sending anything, then runs paced healthy traffic, one
+64-request long-output pressure burst, and paced healthy recovery: 80 requests and at most 16,896
+requested output tokens in total. The stages do not accept overrides, redirects remain disabled,
+and model discovery happens once.
+
+For a small demo model, start vLLM with a deliberately low scheduler ceiling such as
+`--max-num-seqs 4` so the fixed burst remains queued long enough for a three-sample watch window.
+The preset creates a repeatable traffic transition; the displayed verdict still comes exclusively
+from observed metrics and may differ on a server whose capacity or metric coverage is different.
 
 ## Development
 
@@ -293,7 +325,8 @@ uv run --extra nvml infertop diagnose http://localhost:8000 --nvml
 - One scrape cannot prove a counter is increasing or a queue is sustained. Live diagnosis takes
   three samples by default; offline diagnosis should pass `--previous`.
 - Aggregate histograms cannot identify periodic ITL spikes or correlate them with individual
-  long-prompt arrivals. The active probe sees one request, not historical causality.
+  long-prompt arrivals. The active probe sees at most ten sequential requests, not historical
+  causality or representative concurrency.
 - Engine metrics do not explain kernel, network, client, or model-quality faults. Optional NVML
   adds coarse local utilization evidence, not kernel-level profiling or hardware fault diagnosis.
 - Historical Prometheus reads only the supported metric names and classic histogram series. It
@@ -308,8 +341,9 @@ uv run --extra nvml infertop diagnose http://localhost:8000 --nvml
 Core diagnosis only sends `GET` requests to `/metrics` or Prometheus `/api/v1/query_range` and
 never follows redirects. Optional NVML collection uses device-query APIs only. These paths do not
 call admin or mutation endpoints, retain history, or change server or GPU configuration. The
-separately named `probe` command performs one explicitly requested inference `POST`, which consumes
-compute but does not alter configuration.
+separately named `probe` command performs one or a small explicitly requested series of inference
+`POST` calls, which consumes compute but does not alter configuration. Developer load scenarios
+also require `--confirm-active-load` and enforce their ceilings before execution.
 
 Authentication values are read from environment variables, used only for request headers, and are
 not written to text or JSON reports.

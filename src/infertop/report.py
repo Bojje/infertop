@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 from itertools import combinations
 
-from infertop.probe import ProbeResult
+from infertop.probe import MAX_PROBE_REQUESTS, ProbePercentiles, ProbeResult, ProbeRunResult
 from infertop.rules import Finding, assess_diagnostic_coverage
 from infertop.schema import InferenceObservation
 
@@ -118,7 +118,61 @@ def render_json(observation: InferenceObservation, findings: tuple[Finding, ...]
     return json.dumps(payload, indent=2)
 
 
-def render_probe_text(result: ProbeResult) -> str:
+def _percentile_line(label: str, summary: ProbePercentiles) -> str | None:
+    if not summary.count or summary.p50 is None or summary.p95 is None:
+        return None
+    return f"{label}: p50 {summary.p50:.1f}; p95 {summary.p95:.1f} ({summary.count} samples)"
+
+
+def _render_probe_run_text(result: ProbeRunResult) -> str:
+    summaries = (
+        _percentile_line("Client round trip (ms)", result.client_round_trip_ms),
+        _percentile_line("Queue (ms)", result.metric_percentiles("queue_time_ms")),
+        _percentile_line(
+            "TTFT after scheduling (ms)", result.metric_percentiles("time_to_first_token_ms")
+        ),
+        _percentile_line("Decode (ms)", result.metric_percentiles("generation_time_ms")),
+        _percentile_line("Mean ITL (ms)", result.metric_percentiles("mean_itl_ms")),
+        _percentile_line(
+            "Output throughput (tokens/s)", result.metric_percentiles("tokens_per_second")
+        ),
+        _percentile_line("Outside engine (ms)", result.outside_engine_ms),
+    )
+    phases = ", ".join(f"{name}={count}" for name, count in result.dominant_phase_counts.items())
+    reported_tokens = (
+        f"prompt={result.reported_prompt_tokens}, completion={result.reported_completion_tokens}"
+        if result.reported_prompt_tokens is not None
+        and result.reported_completion_tokens is not None
+        else "unavailable for one or more requests"
+    )
+    return "\n".join(
+        (
+            "INFERTOP ACTIVE PROBE SERIES",
+            f"Endpoint: {result.endpoint}",
+            f"Model: {result.model}",
+            f"Requests completed: {result.request_count} (hard cap: {MAX_PROBE_REQUESTS})",
+            (
+                f"Output ceiling: {result.max_tokens_per_request}/request; "
+                f"{result.requested_output_token_ceiling} total requested maximum"
+            ),
+            f"Reported tokens: {reported_tokens}",
+            (
+                "Per-request metrics: "
+                f"{result.metrics_sample_count}/{result.request_count} responses"
+            ),
+            f"Dominant phases: {phases}",
+            "",
+            *(line for line in summaries if line is not None),
+            "",
+            "These percentiles describe only this bounded sequential probe series.",
+            "Use diagnose under representative traffic for workload-wide conclusions.",
+        )
+    )
+
+
+def render_probe_text(result: ProbeResult | ProbeRunResult) -> str:
+    if isinstance(result, ProbeRunResult):
+        return _render_probe_run_text(result)
     lines = [
         "INFERTOP ACTIVE PROBE",
         f"Endpoint: {result.endpoint}",
@@ -141,5 +195,6 @@ def render_probe_text(result: ProbeResult) -> str:
     return "\n".join(lines)
 
 
-def render_probe_json(result: ProbeResult) -> str:
-    return json.dumps({"schema_version": 1, "probe": result.to_dict()}, indent=2)
+def render_probe_json(result: ProbeResult | ProbeRunResult) -> str:
+    name = "probe_run" if isinstance(result, ProbeRunResult) else "probe"
+    return json.dumps({"schema_version": 1, name: result.to_dict()}, indent=2)

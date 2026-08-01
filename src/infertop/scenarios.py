@@ -17,6 +17,12 @@ MAX_CONCURRENCY = 32
 MIN_PROMPT_WORDS = 12
 MAX_PROMPT_WORDS = 8192
 MAX_OUTPUT_TOKENS = 256
+MAX_LAUNCH_INTERVAL_SECONDS = 5.0
+DEMO_SCENARIO_NAME = "demo-transition"
+MAX_DEMO_REQUESTS = 128
+MAX_DEMO_OUTPUT_TOKENS = 32_768
+
+_async_sleep = asyncio.sleep
 
 
 class ScenarioError(RuntimeError):
@@ -83,6 +89,41 @@ SCENARIOS = {
 
 
 @dataclass(frozen=True)
+class DemoStage:
+    """One fixed stage in the deterministic watch demonstration."""
+
+    name: str
+    description: str
+    scenario: Scenario
+    launch_interval_seconds: float = 0.0
+
+
+DEMO_STAGES = (
+    DemoStage(
+        name="healthy-baseline",
+        description="paced low-concurrency requests establish a healthy baseline",
+        scenario=replace(SCENARIOS["healthy"], name="demo-healthy-baseline"),
+        launch_interval_seconds=1.0,
+    ),
+    DemoStage(
+        name="queue-pressure",
+        description="one bounded long-output burst creates scheduler pressure",
+        scenario=replace(
+            SCENARIOS["queue-saturated"],
+            name="demo-queue-pressure",
+            max_tokens=256,
+        ),
+    ),
+    DemoStage(
+        name="healthy-recovery",
+        description="paced low-concurrency requests show recovery after the burst",
+        scenario=replace(SCENARIOS["healthy"], name="demo-healthy-recovery"),
+        launch_interval_seconds=1.0,
+    ),
+)
+
+
+@dataclass(frozen=True)
 class ScenarioRequestResult:
     index: int
     succeeded: bool
@@ -135,6 +176,63 @@ class ScenarioRunResult:
             completion_tokens=self.completion_tokens,
         )
         return payload
+
+
+@dataclass(frozen=True)
+class DemoStageResult:
+    stage: DemoStage
+    result: ScenarioRunResult
+
+
+@dataclass(frozen=True)
+class DemoRunResult:
+    """Result of the fixed healthy-pressure-recovery demonstration."""
+
+    endpoint: str
+    model: str
+    stages: tuple[DemoStageResult, ...]
+
+    @property
+    def request_count(self) -> int:
+        return sum(stage.result.scenario.request_count for stage in self.stages)
+
+    @property
+    def requested_output_token_ceiling(self) -> int:
+        return sum(
+            stage.result.scenario.request_count * stage.result.scenario.max_tokens
+            for stage in self.stages
+        )
+
+    @property
+    def succeeded(self) -> int:
+        return sum(stage.result.succeeded for stage in self.stages)
+
+    @property
+    def failed(self) -> int:
+        return sum(stage.result.failed for stage in self.stages)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "endpoint": self.endpoint,
+            "model": self.model,
+            "safety": {
+                "request_count": self.request_count,
+                "request_cap": MAX_DEMO_REQUESTS,
+                "requested_output_token_ceiling": self.requested_output_token_ceiling,
+                "output_token_cap": MAX_DEMO_OUTPUT_TOKENS,
+            },
+            "succeeded": self.succeeded,
+            "failed": self.failed,
+            "stages": [
+                {
+                    "name": stage.stage.name,
+                    "description": stage.stage.description,
+                    "launch_interval_seconds": stage.stage.launch_interval_seconds,
+                    "result": stage.result.to_dict(),
+                }
+                for stage in self.stages
+            ],
+        }
 
 
 def _quantile(results: tuple[ScenarioRequestResult, ...], quantile: float) -> float | None:
@@ -241,6 +339,7 @@ async def run_scenario(
     model: str | None = None,
     api_key: str | None = None,
     timeout_seconds: float = 120.0,
+    launch_interval_seconds: float = 0.0,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> ScenarioRunResult:
     """Execute one explicitly requested, bounded OpenAI-compatible traffic scenario."""
@@ -248,6 +347,10 @@ async def run_scenario(
     _validate_scenario(scenario)
     if not 0 < timeout_seconds <= 300:
         raise ScenarioError("timeout_seconds must be greater than zero and at most 300")
+    if not 0 <= launch_interval_seconds <= MAX_LAUNCH_INTERVAL_SECONDS:
+        raise ScenarioError(
+            f"launch_interval_seconds must be between zero and {MAX_LAUNCH_INTERVAL_SECONDS:g}"
+        )
     try:
         base_url = api_base_url(endpoint)
     except ProbeError as exc:
@@ -263,6 +366,8 @@ async def run_scenario(
         selected_model = model or await _discover_model(client, base_url)
 
         async def send(index: int) -> ScenarioRequestResult:
+            if index and launch_interval_seconds:
+                await _async_sleep(index * launch_interval_seconds)
             async with semaphore:
                 started = perf_counter()
                 prompt_tokens = None
@@ -308,4 +413,53 @@ async def run_scenario(
         model=selected_model,
         scenario=scenario,
         requests=requests,
+    )
+
+
+def _validate_demo_stages(stages: tuple[DemoStage, ...]) -> None:
+    if not stages:
+        raise ScenarioError("demo must contain at least one stage")
+    request_count = 0
+    requested_tokens = 0
+    for stage in stages:
+        _validate_scenario(stage.scenario)
+        if not 0 <= stage.launch_interval_seconds <= MAX_LAUNCH_INTERVAL_SECONDS:
+            raise ScenarioError("demo stage launch interval is outside the hard bounds")
+        request_count += stage.scenario.request_count
+        requested_tokens += stage.scenario.request_count * stage.scenario.max_tokens
+    if request_count > MAX_DEMO_REQUESTS:
+        raise ScenarioError(f"demo exceeds its {MAX_DEMO_REQUESTS}-request cap")
+    if requested_tokens > MAX_DEMO_OUTPUT_TOKENS:
+        raise ScenarioError(f"demo exceeds its {MAX_DEMO_OUTPUT_TOKENS}-output-token cap")
+
+
+async def run_demo_transition(
+    endpoint: str,
+    *,
+    model: str | None = None,
+    api_key: str | None = None,
+    timeout_seconds: float = 120.0,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> DemoRunResult:
+    """Run the fixed paced-baseline, queue-pressure, and paced-recovery stages."""
+
+    _validate_demo_stages(DEMO_STAGES)
+    selected_model = model
+    results = []
+    for stage in DEMO_STAGES:
+        result = await run_scenario(
+            endpoint,
+            stage.scenario,
+            model=selected_model,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+            launch_interval_seconds=stage.launch_interval_seconds,
+            transport=transport,
+        )
+        selected_model = result.model
+        results.append(DemoStageResult(stage=stage, result=result))
+    return DemoRunResult(
+        endpoint=results[0].result.endpoint,
+        model=results[0].result.model,
+        stages=tuple(results),
     )

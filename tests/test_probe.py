@@ -6,12 +6,15 @@ import httpx
 import pytest
 
 from infertop.probe import (
+    MAX_PROBE_PROMPT_CHARACTERS,
     ProbeError,
     RequestMetrics,
     api_base_url,
     correlate_probe_timing,
     probe_endpoint,
+    probe_endpoint_repeated,
 )
+from infertop.report import render_probe_json, render_probe_text
 
 
 def test_api_base_url_accepts_server_metrics_and_v1_urls() -> None:
@@ -86,6 +89,80 @@ def test_probe_explains_missing_per_request_metrics() -> None:
 def test_probe_enforces_output_token_safety_bound() -> None:
     with pytest.raises(ProbeError, match="between 1 and 256"):
         probe_endpoint("http://localhost:8000", max_tokens=257)
+
+
+def test_probe_enforces_prompt_safety_bound() -> None:
+    with pytest.raises(ProbeError, match="prompt must contain"):
+        probe_endpoint("http://localhost:8000", prompt="x" * (MAX_PROBE_PROMPT_CHARACTERS + 1))
+
+
+def test_repeated_probe_summarizes_nearest_rank_percentiles(monkeypatch) -> None:
+    moments = iter((0.0, 0.1, 1.0, 1.2, 2.0, 2.5))
+    monkeypatch.setattr("infertop.probe._monotonic_seconds", lambda: next(moments))
+    completions = 0
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal completions
+        requests.append(request)
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "model"}]})
+        completions += 1
+        return httpx.Response(
+            200,
+            json={
+                "id": f"request-{completions}",
+                "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+                "metrics": {
+                    "queue_time_ms": completions * 10,
+                    "time_to_first_token_ms": completions * 20,
+                    "generation_time_ms": completions * 30,
+                    "mean_itl_ms": completions * 2,
+                    "tokens_per_second": 100 / completions,
+                },
+            },
+        )
+
+    result = probe_endpoint_repeated(
+        "http://localhost:8000",
+        request_count=3,
+        max_tokens=8,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert len(requests) == 4
+    assert result.request_count == 3
+    assert result.requested_output_token_ceiling == 24
+    assert result.reported_prompt_tokens == 12
+    assert result.reported_completion_tokens == 6
+    assert result.client_round_trip_ms.p50 == pytest.approx(200)
+    assert result.client_round_trip_ms.p95 == pytest.approx(500)
+    assert result.metric_percentiles("queue_time_ms").p50 == 20
+    assert result.metric_percentiles("queue_time_ms").p95 == 30
+    assert result.metrics_sample_count == 3
+    assert result.dominant_phase_counts == {"decode": 1, "outside engine": 2}
+    assert "Output ceiling: 8/request; 24 total" in render_probe_text(result)
+    assert "probe_run" in json.loads(render_probe_json(result))
+
+
+def test_repeated_probe_enforces_request_and_total_token_caps_before_traffic() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no request should be sent")
+
+    transport = httpx.MockTransport(handler)
+    with pytest.raises(ProbeError, match="request_count must be between"):
+        probe_endpoint_repeated(
+            "http://localhost:8000",
+            request_count=11,
+            transport=transport,
+        )
+    with pytest.raises(ProbeError, match="output ceiling exceeds 1024"):
+        probe_endpoint_repeated(
+            "http://localhost:8000",
+            request_count=5,
+            max_tokens=256,
+            transport=transport,
+        )
 
 
 def test_correlates_client_round_trip_with_server_accounted_time() -> None:

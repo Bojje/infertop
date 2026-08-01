@@ -64,6 +64,21 @@ Run only one scenario during a capture. Allow an idle baseline at the beginning 
 name describes traffic shape, not a guaranteed verdict: the golden expectation must be based on
 the captured evidence and the tested hardware/server configuration.
 
+For a live TUI recording rather than a single fixture shape, `demo-transition` is a fixed
+healthy-baseline, queue-pressure, healthy-recovery sequence:
+
+```console
+uv run python scripts/load_scenario.py demo-transition http://localhost:8000 \
+  --confirm-active-load
+```
+
+It prints the 80-request and 16,896-requested-output-token ceiling before traffic, paces the first
+and last eight requests at one launch per second, and sends a 64-request/concurrency-16 pressure
+burst between them. Overrides are rejected so recordings use the same traffic definition. For a
+small model, use a recorded server flag such as `--max-num-seqs 4` to keep the pressure stage
+visible across the watch window; do not claim a saturation verdict unless the captured metrics
+show it.
+
 ## 4. Review before committing
 
 - Confirm every `.prom` file parses with `infertop diagnose` in chronological order.
