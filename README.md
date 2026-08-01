@@ -115,6 +115,12 @@ The normalizer accepts both the current `sglang:` metric namespace and the histo
 form. Request retractions map to the canonical memory-pressure signal, and findings recommend
 SGLang flags such as `--schedule-conservativeness` and `--max-running-requests`.
 
+With `--enable-metrics-for-all-schedulers`, SGLang labels scheduler series by `tp_rank`,
+`pp_rank`, `moe_ep_rank`, and optionally `dp_rank`. `infertop` takes the busiest replicated
+TP/PP/MoE value, then aggregates independent DP shards. It also prefers the explicit `priority=""`
+total over per-priority breakdowns. Tokenizer request counters and latency histograms remain
+workload-wide and are not multiplied by the TP degree.
+
 ## Optional local GPU evidence
 
 Explicitly opt in to read-only local NVIDIA telemetry when the endpoint is served by this machine:
@@ -265,8 +271,8 @@ uv run --extra nvml infertop diagnose http://localhost:8000 --nvml
 - Engine metrics do not explain kernel, network, client, or model-quality faults. Optional NVML
   adds coarse local utilization evidence, not kernel-level profiling or hardware fault diagnosis.
 - Historical Prometheus is a later slice.
-- Multi-scheduler SGLang deployments can expose rank-labelled series. `infertop` supports the
-  default metrics configuration; cross-rank de-duplication is not yet topology-aware.
+- SGLang's documented TP/PP/MoE/DP rank labels are normalized. Custom scheduler-rank label names
+  are not yet classified and should be verified against JSON output before capacity decisions.
 - Thresholds are conservative starting points, not universal SLOs or capacity targets.
 
 ## Safety

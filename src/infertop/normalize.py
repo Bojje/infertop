@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Iterable
 
 from infertop.prometheus import Sample, parse_metrics
 from infertop.schema import Distribution, InferenceSnapshot
@@ -71,15 +70,50 @@ class NormalizationError(ValueError):
     """Raised when metrics cannot be assigned to a supported engine."""
 
 
-def _values(samples: Iterable[Sample], name: str) -> list[float]:
-    return [
-        sample.value for sample in samples if sample.name == name and math.isfinite(sample.value)
-    ]
+_REPLICATED_SCHEDULER_RANK_LABELS = {"tp_rank", "pp_rank", "moe_ep_rank", "rank"}
 
 
-def _aggregate(samples: tuple[Sample, ...], aliases: tuple[str, ...], mode: str) -> float | None:
+def _without_priority_breakdowns(samples: list[Sample]) -> list[Sample]:
+    """Prefer SGLang's explicit priority="" total over its per-priority breakdowns."""
+
+    if any(sample.label("priority") == "" for sample in samples):
+        return [sample for sample in samples if sample.label("priority") in {None, ""}]
+    return samples
+
+
+def _rank_group_key(sample: Sample) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (name, value)
+        for name, value in sample.labels
+        if name not in _REPLICATED_SCHEDULER_RANK_LABELS
+    )
+
+
+def _rank_deduplicated_values(samples: list[Sample]) -> tuple[float, ...]:
+    """Use the busiest replica per scheduler group while preserving independent DP shards."""
+
+    groups: dict[tuple[tuple[str, str], ...], list[float]] = {}
+    for sample in _without_priority_breakdowns(samples):
+        groups.setdefault(_rank_group_key(sample), []).append(sample.value)
+    return tuple(max(values) for values in groups.values())
+
+
+def _aggregate(
+    samples: tuple[Sample, ...],
+    aliases: tuple[str, ...],
+    mode: str,
+    *,
+    rank_aware: bool = False,
+) -> float | None:
     for name in aliases:
-        values = _values(samples, name)
+        matching = [
+            sample for sample in samples if sample.name == name and math.isfinite(sample.value)
+        ]
+        values = (
+            list(_rank_deduplicated_values(matching))
+            if rank_aware
+            else [sample.value for sample in matching]
+        )
         if values:
             if mode == "max":
                 return max(values)
@@ -89,22 +123,44 @@ def _aggregate(samples: tuple[Sample, ...], aliases: tuple[str, ...], mode: str)
     return None
 
 
-def _histogram(samples: tuple[Sample, ...], aliases: tuple[str, ...]) -> Distribution | None:
+def _sample_sum(samples: list[Sample], *, rank_aware: bool) -> float:
+    values = (
+        _rank_deduplicated_values(samples)
+        if rank_aware
+        else tuple(sample.value for sample in samples)
+    )
+    return sum(values)
+
+
+def _histogram(
+    samples: tuple[Sample, ...],
+    aliases: tuple[str, ...],
+    *,
+    rank_aware: bool = False,
+) -> Distribution | None:
     for base_name in aliases:
         bucket_samples = [sample for sample in samples if sample.name == f"{base_name}_bucket"]
         if not bucket_samples:
             continue
-        buckets_by_bound: dict[float, float] = {}
+        bucket_groups: dict[float, list[Sample]] = {}
         for sample in bucket_samples:
             raw_bound = sample.label("le")
             if raw_bound is None:
                 continue
             bound = float(raw_bound)
-            buckets_by_bound[bound] = buckets_by_bound.get(bound, 0.0) + sample.value
-        count_values = _values(samples, f"{base_name}_count")
-        sum_values = _values(samples, f"{base_name}_sum")
-        count = sum(count_values) if count_values else buckets_by_bound.get(math.inf, 0.0)
-        total = sum(sum_values) if sum_values else None
+            bucket_groups.setdefault(bound, []).append(sample)
+        buckets_by_bound = {
+            bound: _sample_sum(group, rank_aware=rank_aware)
+            for bound, group in bucket_groups.items()
+        }
+        count_samples = [sample for sample in samples if sample.name == f"{base_name}_count"]
+        sum_samples = [sample for sample in samples if sample.name == f"{base_name}_sum"]
+        count = (
+            _sample_sum(count_samples, rank_aware=rank_aware)
+            if count_samples
+            else buckets_by_bound.get(math.inf, 0.0)
+        )
+        total = _sample_sum(sum_samples, rank_aware=rank_aware) if sum_samples else None
         return Distribution.from_buckets(
             tuple(buckets_by_bound.items()),
             count=count,
@@ -121,31 +177,41 @@ def _normalize(
     source: str,
     captured_at: float,
 ) -> InferenceSnapshot:
+    rank_aware = engine == "sglang"
     return InferenceSnapshot(
         source=source,
         captured_at=captured_at,
         engine=engine,
-        requests_running=_aggregate(samples, aliases["running"], "sum"),
-        requests_waiting=_aggregate(samples, aliases["waiting"], "sum"),
-        kv_cache_usage=_aggregate(samples, aliases["kv_cache"], "max"),
-        preemptions_total=_aggregate(samples, aliases["preemptions"], "sum"),
-        prefix_cache_queries_total=_aggregate(samples, aliases.get("prefix_queries", ()), "sum"),
-        prefix_cache_hits_total=_aggregate(samples, aliases.get("prefix_hits", ()), "sum"),
+        requests_running=_aggregate(samples, aliases["running"], "sum", rank_aware=rank_aware),
+        requests_waiting=_aggregate(samples, aliases["waiting"], "sum", rank_aware=rank_aware),
+        kv_cache_usage=_aggregate(samples, aliases["kv_cache"], "max", rank_aware=rank_aware),
+        preemptions_total=_aggregate(samples, aliases["preemptions"], "sum", rank_aware=rank_aware),
+        prefix_cache_queries_total=_aggregate(
+            samples, aliases.get("prefix_queries", ()), "sum", rank_aware=rank_aware
+        ),
+        prefix_cache_hits_total=_aggregate(
+            samples, aliases.get("prefix_hits", ()), "sum", rank_aware=rank_aware
+        ),
         prefix_cache_hit_rate_gauge=_aggregate(
             samples,
             aliases.get("prefix_hit_rate", ()),
             "average",
+            rank_aware=rank_aware,
         ),
-        prompt_tokens_total=_aggregate(samples, aliases["prompt_total"], "sum"),
-        generation_tokens_total=_aggregate(samples, aliases["generation_total"], "sum"),
-        end_to_end_latency_seconds=_histogram(samples, aliases["e2e"]),
-        queue_latency_seconds=_histogram(samples, aliases["queue"]),
-        time_to_first_token_seconds=_histogram(samples, aliases["ttft"]),
-        time_per_output_token_seconds=_histogram(samples, aliases["tpot"]),
-        prompt_tokens=_histogram(samples, aliases["prompt"]),
-        generation_tokens=_histogram(samples, aliases["generation"]),
-        prefill_time_seconds=_histogram(samples, aliases["prefill"]),
-        decode_time_seconds=_histogram(samples, aliases["decode"]),
+        prompt_tokens_total=_aggregate(
+            samples, aliases["prompt_total"], "sum", rank_aware=rank_aware
+        ),
+        generation_tokens_total=_aggregate(
+            samples, aliases["generation_total"], "sum", rank_aware=rank_aware
+        ),
+        end_to_end_latency_seconds=_histogram(samples, aliases["e2e"], rank_aware=rank_aware),
+        queue_latency_seconds=_histogram(samples, aliases["queue"], rank_aware=rank_aware),
+        time_to_first_token_seconds=_histogram(samples, aliases["ttft"], rank_aware=rank_aware),
+        time_per_output_token_seconds=_histogram(samples, aliases["tpot"], rank_aware=rank_aware),
+        prompt_tokens=_histogram(samples, aliases["prompt"], rank_aware=rank_aware),
+        generation_tokens=_histogram(samples, aliases["generation"], rank_aware=rank_aware),
+        prefill_time_seconds=_histogram(samples, aliases["prefill"], rank_aware=rank_aware),
+        decode_time_seconds=_histogram(samples, aliases["decode"], rank_aware=rank_aware),
     )
 
 

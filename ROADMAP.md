@@ -63,9 +63,12 @@ without an observed GPU pair and link class.
 
 ## Milestone 4: SGLang multi-rank correctness
 
-- Add rank-labelled current and historical SGLang fixtures.
-- Distinguish replicated counters/histograms from truly sharded gauges.
-- De-duplicate replicated values and aggregate shard-local values without hiding per-rank pressure.
+Status: current rank labels, replicated scheduler series, independent DP shards, priority totals,
+and rank-labelled histogram regressions are implemented with a golden multi-rank diagnosis.
+
+- [x] Add rank-labelled current and historical SGLang fixtures.
+- [x] Distinguish replicated counters/histograms from truly sharded gauges.
+- [x] De-duplicate replicated values and aggregate shard-local values without hiding per-rank pressure.
 - Document the supported SGLang metric/version shapes and report inconclusive coverage for unknown
   layouts.
 

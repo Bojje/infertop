@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from infertop.normalize import (
@@ -8,6 +10,8 @@ from infertop.normalize import (
     normalize_sglang,
     normalize_vllm,
 )
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_aggregates_workers_and_interpolates_histogram_quantiles() -> None:
@@ -84,6 +88,60 @@ def test_auto_detection_accepts_historical_sglang_underscore_namespace() -> None
 
     assert snapshot.engine == "sglang"
     assert snapshot.requests_running == 3
+
+
+def test_sglang_deduplicates_scheduler_ranks_and_sums_dp_shards() -> None:
+    snapshot = normalize_sglang(
+        (FIXTURES / "sglang_multirank.prom").read_text(),
+        source="fixture",
+        captured_at=123,
+    )
+
+    assert snapshot.requests_running == 7
+    assert snapshot.requests_waiting == 3
+    assert snapshot.kv_cache_usage == pytest.approx(0.96)
+    assert snapshot.preemptions_total == 15
+    assert snapshot.prefix_cache_hit_rate_gauge == pytest.approx(0.30)
+    assert snapshot.prompt_tokens_total == 1000
+    assert snapshot.generation_tokens_total == 550
+
+
+def test_sglang_ranked_histograms_match_equivalent_single_rank_histogram() -> None:
+    ranked = normalize_sglang(
+        """
+        sglang:prompt_tokens_histogram_bucket{tp_rank="0",dp_rank="0",le="100"} 4
+        sglang:prompt_tokens_histogram_bucket{tp_rank="1",dp_rank="0",le="100"} 4
+        sglang:prompt_tokens_histogram_bucket{tp_rank="0",dp_rank="0",le="1000"} 10
+        sglang:prompt_tokens_histogram_bucket{tp_rank="1",dp_rank="0",le="1000"} 10
+        sglang:prompt_tokens_histogram_bucket{tp_rank="0",dp_rank="0",le="+Inf"} 10
+        sglang:prompt_tokens_histogram_bucket{tp_rank="1",dp_rank="0",le="+Inf"} 10
+        sglang:prompt_tokens_histogram_count{tp_rank="0",dp_rank="0"} 10
+        sglang:prompt_tokens_histogram_count{tp_rank="1",dp_rank="0"} 10
+        """,
+        source="ranked",
+    )
+    single = normalize_sglang(
+        """
+        sglang:prompt_tokens_histogram_bucket{le="100"} 4
+        sglang:prompt_tokens_histogram_bucket{le="1000"} 10
+        sglang:prompt_tokens_histogram_bucket{le="+Inf"} 10
+        sglang:prompt_tokens_histogram_count 10
+        """,
+        source="single",
+    )
+
+    assert ranked.prompt_tokens == single.prompt_tokens
+
+
+def test_historical_sglang_namespace_uses_the_same_rank_deduplication() -> None:
+    snapshot = normalize_metrics(
+        (FIXTURES / "sglang_multirank_historical.prom").read_text(),
+        source="fixture",
+    )
+
+    assert snapshot.engine == "sglang"
+    assert snapshot.requests_running == 7
+    assert snapshot.preemptions_total == 15
 
 
 def test_auto_detection_rejects_unknown_or_mixed_engine_metrics() -> None:

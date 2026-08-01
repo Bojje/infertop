@@ -1,0 +1,25 @@
+# Synthetic current SGLang multi-scheduler shape. TP/PP/MoE ranks are replicas; DP ranks are shards.
+sglang:num_running_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="0",priority=""} 4
+sglang:num_running_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="0",priority=""} 4
+sglang:num_running_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="1",priority=""} 3
+sglang:num_running_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="1",priority=""} 3
+sglang:num_running_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="0",priority="10"} 2
+sglang:num_running_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="0",priority="10"} 2
+sglang:num_queue_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="0",priority=""} 2
+sglang:num_queue_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="0",priority=""} 2
+sglang:num_queue_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="1",priority=""} 1
+sglang:num_queue_reqs{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="1",priority=""} 1
+sglang:token_usage{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="0"} 0.92
+sglang:token_usage{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="0"} 0.91
+sglang:token_usage{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="1"} 0.80
+sglang:token_usage{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="1"} 0.80
+sglang:num_retracted_requests_total{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="0"} 7
+sglang:num_retracted_requests_total{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="0"} 7
+sglang:num_retracted_requests_total{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="1"} 4
+sglang:num_retracted_requests_total{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="1"} 4
+sglang:cache_hit_rate{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="0"} 0.20
+sglang:cache_hit_rate{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="0"} 0
+sglang:cache_hit_rate{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="0",pp_rank="0",moe_ep_rank="0",dp_rank="1"} 0.40
+sglang:cache_hit_rate{model_name="Qwen/Qwen3-0.6B",engine_type="unified",tp_rank="1",pp_rank="0",moe_ep_rank="0",dp_rank="1"} 0
+sglang:prompt_tokens_total{model_name="Qwen/Qwen3-0.6B",engine_type="unified"} 800
+sglang:generation_tokens_total{model_name="Qwen/Qwen3-0.6B",engine_type="unified"} 400
