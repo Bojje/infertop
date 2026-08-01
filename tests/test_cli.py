@@ -233,6 +233,19 @@ def test_nvml_is_rejected_for_offline_fixture(capsys) -> None:
     assert "--nvml is only valid with a live endpoint" in capsys.readouterr().err
 
 
+def test_tp_topology_is_rejected_for_offline_fixture(capsys) -> None:
+    exit_code = main(["diagnose", str(FIXTURES / "healthy.prom"), "--tp-gpus", "0,1"])
+
+    assert exit_code == 2
+    assert "--tp-gpus is only valid with a live endpoint" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("indices", ("0", "1,0", "0,0", "0,nope"))
+def test_tp_gpu_indices_are_validated_before_collection(indices: str) -> None:
+    with pytest.raises(SystemExit):
+        main(["diagnose", "http://localhost:8000", "--tp-gpus", indices])
+
+
 def test_live_options_and_api_key_are_forwarded_to_collector(capsys, monkeypatch) -> None:
     observation = collect_files(FIXTURES / "healthy.prom")
     received: dict[str, object] = {}
@@ -251,6 +264,8 @@ def test_live_options_and_api_key_are_forwarded_to_collector(capsys, monkeypatch
             "--nvml",
             "--samples",
             "2",
+            "--tp-gpus",
+            "0,1",
             "--api-key-env",
             "METRICS_TOKEN",
         ]
@@ -260,6 +275,7 @@ def test_live_options_and_api_key_are_forwarded_to_collector(capsys, monkeypatch
     assert exit_code == 0
     assert received["include_nvml"] is True
     assert received["sample_count"] == 2
+    assert received["tensor_parallel_gpu_indices"] == (0, 1)
     assert received["api_key"] == "metrics-secret"
     assert "Engine: vllm" in output
     assert "metrics-secret" not in output

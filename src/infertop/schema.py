@@ -191,6 +191,26 @@ class InferenceSnapshot:
     decode_time_seconds: Distribution | None = None
 
 
+def validate_tensor_parallel_topology(
+    topology: GpuTopology | None,
+    indices: tuple[int, ...],
+) -> None:
+    """Validate explicit TP membership without inferring it from installed devices."""
+
+    if not indices:
+        return
+    if len(indices) < 2:
+        raise ValueError("tensor-parallel topology requires at least two GPU indices")
+    if tuple(sorted(set(indices))) != indices:
+        raise ValueError("tensor-parallel GPU indices must be unique and sorted")
+    if topology is None:
+        raise ValueError("tensor-parallel GPU indices require observed topology")
+    unknown = set(indices) - set(topology.gpu_indices)
+    if unknown:
+        names = ", ".join(f"GPU{index}" for index in sorted(unknown))
+        raise ValueError(f"tensor-parallel group references unknown topology devices: {names}")
+
+
 @dataclass(frozen=True)
 class InferenceObservation:
     """One snapshot, optionally paired with an earlier one for rate evidence."""
@@ -199,6 +219,11 @@ class InferenceObservation:
     previous: InferenceSnapshot | None = None
     intermediate: tuple[InferenceSnapshot, ...] = ()
     interval_seconds: float | None = None
+    topology: GpuTopology | None = None
+    tensor_parallel_gpu_indices: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        validate_tensor_parallel_topology(self.topology, self.tensor_parallel_gpu_indices)
 
     @property
     def snapshots(self) -> tuple[InferenceSnapshot, ...]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from itertools import combinations
 
 from infertop.probe import ProbeResult
 from infertop.rules import Finding, assess_diagnostic_coverage
@@ -51,6 +52,14 @@ def render_text(observation: InferenceObservation, findings: tuple[Finding, ...]
         )
     if observation.current.gpus:
         lines.extend(("Hardware: local NVML", *_gpu_summary(observation)))
+    if observation.topology is not None:
+        indices = observation.tensor_parallel_gpu_indices
+        declared = ", ".join(f"GPU{index}" for index in indices)
+        lines.append(f"Topology: local nvidia-smi (declared TP GPUs: {declared})")
+        for first_gpu, second_gpu in combinations(indices, 2):
+            link = observation.topology.link_between(first_gpu, second_gpu)
+            kind = link.kind if link is not None else "unknown"
+            lines.append(f"GPU {first_gpu} <-> GPU {second_gpu}: {kind}")
     lines.append("")
     for index, finding in enumerate(findings, 1):
         lines.extend(
@@ -77,6 +86,19 @@ def render_json(observation: InferenceObservation, findings: tuple[Finding, ...]
         }
         for gpu in observation.current.gpus
     ]
+    topology = None
+    if observation.topology is not None:
+        topology = {
+            "gpu_indices": observation.topology.gpu_indices,
+            "links": [asdict(link) for link in observation.topology.links],
+            "tensor_parallel_gpu_indices": observation.tensor_parallel_gpu_indices,
+        }
+    hardware = None
+    if gpus or topology is not None:
+        source = "local_nvml"
+        if topology is not None:
+            source = "local_nvml+nvidia_smi" if gpus else "local_nvidia_smi"
+        hardware = {"source": source, "gpus": gpus, "topology": topology}
     payload = {
         "schema_version": 1,
         "engine": observation.current.engine,
@@ -90,7 +112,7 @@ def render_json(observation: InferenceObservation, findings: tuple[Finding, ...]
             "blocked_rules": [asdict(gap) for gap in coverage.blocked_rules],
             "health_verdict_supported": coverage.health_verdict_supported,
         },
-        "hardware": {"source": "local_nvml", "gpus": gpus} if gpus else None,
+        "hardware": hardware,
         "findings": [asdict(finding) for finding in findings],
     }
     return json.dumps(payload, indent=2)

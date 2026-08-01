@@ -11,10 +11,13 @@ from infertop.rules import (
     rule_batch_efficiency,
     rule_hardware_correlation,
     rule_kv_cache_health,
+    rule_tensor_parallel_topology,
 )
 from infertop.schema import (
     Distribution,
     GpuDeviceSnapshot,
+    GpuTopology,
+    GpuTopologyLink,
     InferenceObservation,
     InferenceSnapshot,
 )
@@ -305,3 +308,37 @@ def test_r6_flags_high_latency_while_active_local_gpu_is_idle() -> None:
 
     assert finding is not None
     assert finding.rule_id == "R6_LOW_GPU_ACTIVITY"
+
+
+def _topology_observation(kind: str) -> InferenceObservation:
+    return InferenceObservation(
+        current=InferenceSnapshot(source="fixture", captured_at=0),
+        topology=GpuTopology(
+            gpu_indices=(0, 1),
+            links=(GpuTopologyLink(first_gpu=0, second_gpu=1, kind=kind),),
+        ),
+        tensor_parallel_gpu_indices=(0, 1),
+    )
+
+
+@pytest.mark.parametrize("kind", ("SYS", "NODE", "PHB"))
+def test_r7_warns_for_observed_slow_links_in_explicit_tp_group(kind: str) -> None:
+    finding = rule_tensor_parallel_topology(_topology_observation(kind))
+
+    assert finding is not None
+    assert finding.rule_id == "R7_SLOW_TP_TOPOLOGY"
+    assert any(f"GPU0 <-> GPU1: {kind}" in item for item in finding.evidence)
+
+
+@pytest.mark.parametrize("kind", ("NV4", "PIX", "PXB", "N/A"))
+def test_r7_does_not_guess_from_fast_or_unknown_links(kind: str) -> None:
+    assert rule_tensor_parallel_topology(_topology_observation(kind)) is None
+
+
+def test_tp_group_rejects_devices_absent_from_observed_topology() -> None:
+    with pytest.raises(ValueError, match="unknown topology devices: GPU2"):
+        InferenceObservation(
+            current=InferenceSnapshot(source="fixture", captured_at=0),
+            topology=GpuTopology(gpu_indices=(0, 1)),
+            tensor_parallel_gpu_indices=(0, 2),
+        )

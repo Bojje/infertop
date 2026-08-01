@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from itertools import combinations
 
 from infertop.schema import InferenceObservation
 
@@ -659,6 +660,55 @@ def rule_hardware_correlation(
     return None
 
 
+_SLOW_TOPOLOGY_LINKS = {
+    "SYS": "crosses the system interconnect between NUMA nodes",
+    "NODE": "crosses host bridges within a NUMA node",
+    "PHB": "crosses a PCIe host bridge",
+}
+
+
+def rule_tensor_parallel_topology(
+    observation: InferenceObservation,
+    _thresholds: Thresholds = DEFAULT_THRESHOLDS,
+) -> Finding | None:
+    """R7: warn only when an explicit TP group contains observed slow host links."""
+
+    topology = observation.topology
+    indices = observation.tensor_parallel_gpu_indices
+    if topology is None or len(indices) < 2:
+        return None
+    slow_links = []
+    for first_gpu, second_gpu in combinations(indices, 2):
+        link = topology.link_between(first_gpu, second_gpu)
+        if link is not None and link.kind in _SLOW_TOPOLOGY_LINKS:
+            slow_links.append(link)
+    if not slow_links:
+        return None
+    return Finding(
+        rule_id="R7_SLOW_TP_TOPOLOGY",
+        title="Tensor-parallel group crosses slow host links",
+        severity=Severity.WARNING,
+        score=62,
+        summary=(
+            "At least one explicitly declared tensor-parallel GPU pair communicates through "
+            "a host bridge or NUMA interconnect."
+        ),
+        evidence=(
+            f"Declared TP GPUs: {', '.join(f'GPU{index}' for index in indices)}",
+            *(
+                f"GPU{link.first_gpu} <-> GPU{link.second_gpu}: {link.kind} "
+                f"({_SLOW_TOPOLOGY_LINKS[link.kind]})"
+                for link in slow_links
+            ),
+        ),
+        remediations=(
+            "Place tensor-parallel ranks on GPUs connected by NVLink or the closest PCIe fabric.",
+            "Benchmark the same model and batch shape before and after changing GPU placement.",
+            "Use a smaller TP degree only if the model and KV cache still fit safely.",
+        ),
+    )
+
+
 # Metadata makes required inputs inspectable while evaluators remain ordinary pure functions.
 RULES = (
     Rule(
@@ -709,6 +759,7 @@ RULES = (
         ),
         rule_hardware_correlation,
     ),
+    Rule("R7", ("topology", "tensor_parallel_gpu_indices"), rule_tensor_parallel_topology),
 )
 
 
@@ -830,7 +881,7 @@ def diagnose(
         prefix_hit_rate = observation.prefix_cache_hit_rate
         if coverage.health_verdict_supported:
             evidence = [
-                "R1-R3 had sufficient telemetry and no R1-R6 threshold was crossed.",
+                "R1-R3 had sufficient telemetry and no R1-R7 threshold was crossed.",
                 (
                     f"Core rule coverage: {coverage.covered_count}/{coverage.total_count} "
                     "rules fully covered"

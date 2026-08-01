@@ -23,6 +23,20 @@ _SEVERITY_RANK = {
 }
 
 
+def _gpu_indices(value: str) -> tuple[int, ...]:
+    try:
+        indices = tuple(int(item) for item in value.split(","))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("GPU indices must be comma-separated integers") from exc
+    if len(indices) < 2 or any(index < 0 for index in indices):
+        raise argparse.ArgumentTypeError(
+            "TP topology requires at least two non-negative GPU indices"
+        )
+    if tuple(sorted(set(indices))) != indices:
+        raise argparse.ArgumentTypeError("GPU indices must be unique and sorted")
+    return indices
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="infertop")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -64,6 +78,13 @@ def _parser() -> argparse.ArgumentParser:
         "--nvml",
         action="store_true",
         help="fuse read-only local NVIDIA telemetry (requires infertop[nvml])",
+    )
+    diagnose_parser.add_argument(
+        "--tp-gpus",
+        type=_gpu_indices,
+        default=(),
+        metavar="INDEX,INDEX",
+        help="explicit local tensor-parallel GPU indices for read-only topology diagnosis",
     )
     diagnose_parser.add_argument(
         "--api-key-env",
@@ -134,6 +155,13 @@ def _parser() -> argparse.ArgumentParser:
         help="fuse read-only local NVIDIA telemetry (requires infertop[nvml,tui])",
     )
     watch_parser.add_argument(
+        "--tp-gpus",
+        type=_gpu_indices,
+        default=(),
+        metavar="INDEX,INDEX",
+        help="explicit local tensor-parallel GPU indices for read-only topology diagnosis",
+    )
+    watch_parser.add_argument(
         "--api-key-env",
         default="INFERTOP_API_KEY",
         help="environment variable containing a metrics bearer token (default: INFERTOP_API_KEY)",
@@ -166,10 +194,13 @@ def _run_diagnose(args: argparse.Namespace) -> tuple[str, int]:
             sample_count=args.samples,
             include_nvml=args.nvml,
             api_key=os.environ.get(args.api_key_env),
+            tensor_parallel_gpu_indices=args.tp_gpus,
         )
     else:
         if args.nvml:
             raise CollectionError("--nvml is only valid with a live endpoint")
+        if args.tp_gpus:
+            raise CollectionError("--tp-gpus is only valid with a live endpoint")
         if args.intermediate:
             if args.previous is None:
                 raise CollectionError("--intermediate requires --previous")
@@ -213,6 +244,7 @@ def _run_watch(args: argparse.Namespace) -> None:
         sample_count=args.samples,
         include_nvml=args.nvml,
         api_key=os.environ.get(args.api_key_env),
+        tensor_parallel_gpu_indices=args.tp_gpus,
     )
 
 

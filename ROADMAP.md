@@ -47,15 +47,15 @@ with capture provenance that another contributor can reproduce.
 
 ## Milestone 3: R7 tensor-parallel topology
 
-Status: the canonical topology schema, pure matrix parser, local one-GPU fixture, and synthetic
-multi-GPU link fixtures are implemented. Explicit tensor-parallel membership and R7 findings remain.
+Status: the canonical topology schema, parser, explicit tensor-parallel membership, reporting, and
+conservative R7 slow-link finding are implemented. Multi-GPU live validation remains pending.
 
 - [x] Parse `nvidia-smi topo -m` into an engine-independent topology model using a pure parser.
-- Collect topology only when the user explicitly opts into local NVIDIA evidence.
-- Warn conservatively when a multi-GPU tensor-parallel group crosses known slow paths such as
+- [x] Collect topology only when the user explicitly opts into local NVIDIA evidence.
+- [x] Warn conservatively when a multi-GPU tensor-parallel group crosses known slow paths such as
   `SYS`, `NODE`, or `PHB`; print the exact GPU pair, link class, and legend as evidence.
-- Treat a single GPU, unknown mappings, and incomplete topology as no verdict rather than guessing.
-- Test with synthetic one-GPU, NVLink, PCIe-switch, and cross-NUMA fixtures; the local one-GPU RTX
+- [x] Treat a single GPU, unknown mappings, and incomplete topology as no verdict rather than guessing.
+- [x] Test with synthetic one-GPU, NVLink, PCIe-switch, and cross-NUMA fixtures; the local one-GPU RTX
   5080 is only a no-op live check.
 
 Exit criterion: R7 is deterministic, fixture-tested, read-only, and cannot make a topology claim

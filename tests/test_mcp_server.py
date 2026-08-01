@@ -23,9 +23,11 @@ def test_mcp_diagnosis_reads_metrics_token_from_named_environment(monkeypatch) -
     payload = diagnose_endpoint_result(
         "http://localhost:8000",
         api_key_env="METRICS_TOKEN",
+        tensor_parallel_gpu_indices=[0, 1],
     )
 
     assert received["api_key"] == "metrics-secret"
+    assert received["tensor_parallel_gpu_indices"] == (0, 1)
     assert "metrics-secret" not in repr(payload)
 
 

@@ -9,9 +9,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from infertop.hardware import collect_nvml_gpus
+from infertop.hardware import collect_nvidia_topology, collect_nvml_gpus
 from infertop.normalize import normalize_metrics
-from infertop.schema import InferenceObservation, InferenceSnapshot
+from infertop.schema import (
+    InferenceObservation,
+    InferenceSnapshot,
+    validate_tensor_parallel_topology,
+)
 
 
 class CollectionError(RuntimeError):
@@ -103,6 +107,7 @@ def collect_endpoint(
     sample_count: int = 3,
     include_nvml: bool = False,
     api_key: str | None = None,
+    tensor_parallel_gpu_indices: tuple[int, ...] = (),
     transport: httpx.BaseTransport | None = None,
 ) -> InferenceObservation:
     """GET multiple scrapes without redirects or mutation, then normalize them."""
@@ -112,6 +117,8 @@ def collect_endpoint(
     if sample_count < 2:
         raise CollectionError("sample_count must be at least two")
     url = metrics_url(endpoint)
+    topology = collect_nvidia_topology() if tensor_parallel_gpu_indices else None
+    validate_tensor_parallel_topology(topology, tensor_parallel_gpu_indices)
     snapshots = []
     try:
         with httpx.Client(
@@ -131,6 +138,8 @@ def collect_endpoint(
         previous=snapshots[0],
         intermediate=tuple(snapshots[1:-1]),
         interval_seconds=snapshots[-1].captured_at - snapshots[0].captured_at,
+        topology=topology,
+        tensor_parallel_gpu_indices=tensor_parallel_gpu_indices,
     )
 
 
