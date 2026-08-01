@@ -18,6 +18,10 @@ class CollectionError(RuntimeError):
     """Raised when metrics cannot be collected safely."""
 
 
+def _authorization_headers(api_key: str | None) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
 def metrics_url(endpoint: str) -> str:
     parsed = urlsplit(endpoint)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -45,6 +49,7 @@ def scrape_endpoint(
     *,
     timeout_seconds: float = 5.0,
     include_nvml: bool = False,
+    api_key: str | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> InferenceSnapshot:
     """Read and normalize exactly one metrics scrape."""
@@ -54,6 +59,7 @@ def scrape_endpoint(
         with httpx.Client(
             timeout=timeout_seconds,
             follow_redirects=False,
+            headers=_authorization_headers(api_key),
             transport=transport,
         ) as client:
             return _scrape(client, url, include_nvml=include_nvml)
@@ -66,6 +72,7 @@ async def scrape_endpoint_async(
     *,
     timeout_seconds: float = 5.0,
     include_nvml: bool = False,
+    api_key: str | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> InferenceSnapshot:
     """Asynchronously read and normalize exactly one metrics scrape."""
@@ -75,6 +82,7 @@ async def scrape_endpoint_async(
         async with httpx.AsyncClient(
             timeout=timeout_seconds,
             follow_redirects=False,
+            headers=_authorization_headers(api_key),
             transport=transport,
         ) as client:
             response = await client.get(url)
@@ -92,6 +100,7 @@ def collect_endpoint(
     timeout_seconds: float = 5.0,
     sample_count: int = 3,
     include_nvml: bool = False,
+    api_key: str | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> InferenceObservation:
     """GET multiple scrapes without redirects or mutation, then normalize them."""
@@ -106,6 +115,7 @@ def collect_endpoint(
         with httpx.Client(
             timeout=timeout_seconds,
             follow_redirects=False,
+            headers=_authorization_headers(api_key),
             transport=transport,
         ) as client:
             for index in range(sample_count):

@@ -19,6 +19,7 @@ def diagnose_endpoint_result(
     timeout_seconds: float = 5.0,
     sample_count: int = 3,
     include_nvml: bool = False,
+    api_key_env: str = "INFERTOP_API_KEY",
 ) -> dict[str, Any]:
     """Return structured deterministic findings from read-only metrics scrapes."""
 
@@ -28,6 +29,7 @@ def diagnose_endpoint_result(
         timeout_seconds=timeout_seconds,
         sample_count=sample_count,
         include_nvml=include_nvml,
+        api_key=os.environ.get(api_key_env),
     )
     return json.loads(render_json(observation, diagnose(observation)))
 
@@ -76,8 +78,9 @@ def create_server() -> Any:
         timeout_seconds: float = 5.0,
         sample_count: int = 3,
         include_nvml: bool = False,
+        api_key_env: str = "INFERTOP_API_KEY",
     ) -> dict[str, Any]:
-        """Read /metrics repeatedly; optionally fuse read-only local NVML evidence."""
+        """Read /metrics; optionally use an env token and fuse read-only local NVML."""
 
         return diagnose_endpoint_result(
             endpoint,
@@ -85,6 +88,7 @@ def create_server() -> Any:
             timeout_seconds=timeout_seconds,
             sample_count=sample_count,
             include_nvml=include_nvml,
+            api_key_env=api_key_env,
         )
 
     @server.tool()
