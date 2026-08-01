@@ -213,6 +213,10 @@ uv run pytest
 uv build
 ```
 
+The ordered implementation plan and release gates live in [ROADMAP.md](ROADMAP.md). PyPI
+publication is always a separate, manually confirmed workflow action; pushing a tag does not
+publish a package.
+
 To verify the optional MCP interface:
 
 ```console
