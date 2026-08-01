@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from infertop import __version__
-from infertop.collector import CollectionError, collect_endpoint, collect_files
+from infertop.collector import CollectionError, collect_endpoint, collect_file_series, collect_files
 from infertop.probe import ProbeError, probe_endpoint
 from infertop.prometheus import MetricsParseError
 from infertop.report import render_json, render_probe_json, render_probe_text, render_text
@@ -33,6 +33,14 @@ def _parser() -> argparse.ArgumentParser:
         "--previous",
         type=Path,
         help="earlier metrics file (offline counter deltas)",
+    )
+    diagnose_parser.add_argument(
+        "--intermediate",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="metrics file between --previous and target; repeat in chronological order",
     )
     diagnose_parser.add_argument(
         "--interval",
@@ -137,8 +145,10 @@ def diagnosis_exit_code(
 
 def _run_diagnose(args: argparse.Namespace) -> tuple[str, int]:
     if args.target.startswith(("http://", "https://")):
-        if args.previous is not None:
-            raise CollectionError("--previous is only valid with a metrics file")
+        if args.previous is not None or args.intermediate:
+            raise CollectionError(
+                "--previous and --intermediate are only valid with a metrics file"
+            )
         observation = collect_endpoint(
             args.target,
             interval_seconds=args.interval,
@@ -149,11 +159,19 @@ def _run_diagnose(args: argparse.Namespace) -> tuple[str, int]:
     else:
         if args.nvml:
             raise CollectionError("--nvml is only valid with a live endpoint")
-        observation = collect_files(
-            Path(args.target),
-            previous_path=args.previous,
-            interval_seconds=args.interval,
-        )
+        if args.intermediate:
+            if args.previous is None:
+                raise CollectionError("--intermediate requires --previous")
+            observation = collect_file_series(
+                (args.previous, *args.intermediate, Path(args.target)),
+                interval_seconds=args.interval,
+            )
+        else:
+            observation = collect_files(
+                Path(args.target),
+                previous_path=args.previous,
+                interval_seconds=args.interval,
+            )
     findings = diagnose(observation)
     output = render_json(observation, findings) if args.json else render_text(observation, findings)
     return output, diagnosis_exit_code(findings, args.fail_on)
