@@ -139,13 +139,13 @@ def collect_file_series(
     *,
     interval_seconds: float | None,
 ) -> InferenceObservation:
-    """Load an ordered series of saved scrapes for fixture-driven diagnosis."""
+    """Load ordered scrapes separated by ``interval_seconds`` for fixture diagnosis."""
 
     if not paths:
         raise CollectionError("at least one metrics file is required")
     if len(paths) > 1 and (interval_seconds is None or interval_seconds <= 0):
         raise CollectionError("a positive interval is required for multiple metrics files")
-    step = interval_seconds / (len(paths) - 1) if len(paths) > 1 else 0.0
+    step = interval_seconds if len(paths) > 1 and interval_seconds is not None else 0.0
     snapshots = tuple(
         normalize_metrics(
             path.read_text(),
@@ -160,5 +160,5 @@ def collect_file_series(
         previous=snapshots[0],
         intermediate=snapshots[1:-1],
         current=snapshots[-1],
-        interval_seconds=interval_seconds,
+        interval_seconds=step * (len(snapshots) - 1),
     )

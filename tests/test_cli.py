@@ -91,6 +91,54 @@ def test_fail_on_critical_returns_one_after_printing_report(capsys) -> None:
     assert "R3_KV_THRASHING" in capsys.readouterr().out
 
 
+def test_replays_three_file_series_for_r5_diagnosis(capsys) -> None:
+    exit_code = main(
+        [
+            "diagnose",
+            str(FIXTURES / "batch_headroom.prom"),
+            "--previous",
+            str(FIXTURES / "batch_headroom_before.prom"),
+            "--intermediate",
+            str(FIXTURES / "batch_headroom_middle.prom"),
+            "--interval",
+            "10",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Observed: 20.0s across 3 samples" in output
+    assert "1. INFO [R5_BATCH_HEADROOM]" in output
+
+
+def test_intermediate_fixture_requires_previous(capsys) -> None:
+    exit_code = main(
+        [
+            "diagnose",
+            str(FIXTURES / "batch_headroom.prom"),
+            "--intermediate",
+            str(FIXTURES / "batch_headroom_middle.prom"),
+        ]
+    )
+
+    assert exit_code == 2
+    assert "--intermediate requires --previous" in capsys.readouterr().err
+
+
+def test_intermediate_fixture_is_rejected_for_live_endpoint(capsys) -> None:
+    exit_code = main(
+        [
+            "diagnose",
+            "http://localhost:8000",
+            "--intermediate",
+            str(FIXTURES / "batch_headroom_middle.prom"),
+        ]
+    )
+
+    assert exit_code == 2
+    assert "only valid with a metrics file" in capsys.readouterr().err
+
+
 def test_json_report_is_machine_readable(capsys) -> None:
     exit_code = main(["diagnose", str(FIXTURES / "healthy.prom"), "--json"])
 

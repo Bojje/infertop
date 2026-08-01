@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import httpx
 import pytest
 
-from infertop.collector import CollectionError, collect_endpoint, scrape_endpoint_async
+from infertop.collector import (
+    CollectionError,
+    collect_endpoint,
+    collect_file_series,
+    scrape_endpoint_async,
+)
 from infertop.schema import GpuDeviceSnapshot
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_live_collector_builds_three_sample_window_and_counter_rates(monkeypatch) -> None:
@@ -51,6 +59,21 @@ def test_live_collector_builds_three_sample_window_and_counter_rates(monkeypatch
 def test_live_collector_requires_at_least_two_samples() -> None:
     with pytest.raises(CollectionError, match="at least two"):
         collect_endpoint("http://localhost:8000", sample_count=1)
+
+
+def test_offline_series_interval_is_between_adjacent_snapshots() -> None:
+    observation = collect_file_series(
+        (
+            FIXTURES / "batch_headroom_before.prom",
+            FIXTURES / "batch_headroom_middle.prom",
+            FIXTURES / "batch_headroom.prom",
+        ),
+        interval_seconds=10,
+    )
+
+    assert observation.sample_count == 3
+    assert observation.interval_seconds == 20
+    assert tuple(snapshot.captured_at for snapshot in observation.snapshots) == (0, 10, 20)
 
 
 def test_async_scraper_supports_cancellable_tui_collection() -> None:

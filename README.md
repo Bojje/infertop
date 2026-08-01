@@ -173,6 +173,18 @@ uv run infertop diagnose tests/fixtures/kv_thrashing.prom \
   --previous tests/fixtures/kv_thrashing_before.prom --interval 10
 ```
 
+Rules that require three or more samples can be replayed with chronological intermediate files:
+
+```console
+uv run infertop diagnose tests/fixtures/batch_headroom.prom \
+  --previous tests/fixtures/batch_headroom_before.prom \
+  --intermediate tests/fixtures/batch_headroom_middle.prom \
+  --interval 10
+```
+
+Repeat `--intermediate` for longer series. `--interval` is the number of seconds between adjacent
+fixture files, matching the live polling option.
+
 The checked-in fixtures use real vLLM and SGLang exposition names and shapes, but are currently
 hand-shaped representative snapshots. They are not mislabeled as captures. Replace or augment them
 with recorded local load scenarios before making benchmark claims.
