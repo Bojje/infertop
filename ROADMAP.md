@@ -47,7 +47,10 @@ with capture provenance that another contributor can reproduce.
 
 ## Milestone 3: R7 tensor-parallel topology
 
-- Parse `nvidia-smi topo -m` into an engine-independent topology model using a pure parser.
+Status: the canonical topology schema, pure matrix parser, local one-GPU fixture, and synthetic
+multi-GPU link fixtures are implemented. Explicit tensor-parallel membership and R7 findings remain.
+
+- [x] Parse `nvidia-smi topo -m` into an engine-independent topology model using a pure parser.
 - Collect topology only when the user explicitly opts into local NVIDIA evidence.
 - Warn conservatively when a multi-GPU tensor-parallel group crosses known slow paths such as
   `SYS`, `NODE`, or `PHB`; print the exact GPU pair, link class, and legend as evidence.

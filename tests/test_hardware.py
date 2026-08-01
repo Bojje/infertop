@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
-from infertop.hardware import HardwareCollectionError, collect_nvml_gpus
+from infertop.hardware import (
+    HardwareCollectionError,
+    TopologyParseError,
+    collect_nvidia_topology,
+    collect_nvml_gpus,
+    parse_nvidia_topology,
+)
 from infertop.report import render_json, render_text
 from infertop.rules import diagnose
 from infertop.schema import InferenceObservation, InferenceSnapshot
+
+TOPOLOGY_FIXTURES = Path(__file__).parent / "fixtures" / "topology"
 
 
 class FakeNVMLError(Exception):
@@ -108,3 +118,79 @@ def test_reports_local_hardware_in_text_and_json() -> None:
     assert "NVIDIA GeForce RTX 5080" in text
     assert payload["hardware"]["source"] == "local_nvml"
     assert payload["hardware"]["gpus"][0]["vram_usage"] == pytest.approx(0.75)
+
+
+@pytest.mark.parametrize(
+    ("fixture", "indices", "links"),
+    (
+        ("one_gpu.txt", (0,), ()),
+        ("nvlink.txt", (0, 1), ((0, 1, "NV4"),)),
+        (
+            "cross_numa.txt",
+            (0, 1, 2),
+            ((0, 1, "PIX"), (0, 2, "SYS"), (1, 2, "NODE")),
+        ),
+    ),
+)
+def test_parses_nvidia_topology_fixtures(
+    fixture: str,
+    indices: tuple[int, ...],
+    links: tuple[tuple[int, int, str], ...],
+) -> None:
+    topology = parse_nvidia_topology((TOPOLOGY_FIXTURES / fixture).read_text())
+
+    assert topology.gpu_indices == indices
+    assert tuple((link.first_gpu, link.second_gpu, link.kind) for link in topology.links) == links
+    for first_gpu, second_gpu, kind in links:
+        assert topology.link_between(second_gpu, first_gpu).kind == kind
+
+
+def test_topology_parser_strips_terminal_ansi_sequences() -> None:
+    topology = parse_nvidia_topology("\x1b[4mGPU0 CPU Affinity\x1b[0m\nGPU0 X N/A\n")
+
+    assert topology.gpu_indices == (0,)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    (
+        ("not a topology", "no GPU header"),
+        ("GPU0 GPU1\nGPU0 X SYS\n", "missing rows"),
+        ("GPU0 GPU1\nGPU0 X SYS\nGPU1 PIX X\n", "asymmetric"),
+        ("GPU0\nGPU0 SYS\n", "diagonal"),
+    ),
+)
+def test_topology_parser_rejects_incomplete_or_inconsistent_matrices(
+    text: str,
+    message: str,
+) -> None:
+    with pytest.raises(TopologyParseError, match=message):
+        parse_nvidia_topology(text)
+
+
+def test_collects_topology_with_read_only_nvidia_smi_command() -> None:
+    calls: list[tuple[object, ...]] = []
+
+    def runner(*args, **kwargs) -> subprocess.CompletedProcess[str]:
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=(TOPOLOGY_FIXTURES / "nvlink.txt").read_text(),
+            stderr="",
+        )
+
+    topology = collect_nvidia_topology(runner)
+
+    assert topology.link_between(0, 1).kind == "NV4"
+    assert calls == [
+        (
+            (["nvidia-smi", "topo", "-m"],),
+            {
+                "capture_output": True,
+                "text": True,
+                "check": False,
+                "timeout": 5,
+            },
+        )
+    ]

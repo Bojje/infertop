@@ -1,0 +1,7 @@
+	GPU0	CPU Affinity	NUMA Affinity	GPU NUMA ID
+GPU0	 X 				N/A
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe and the SMP interconnect between NUMA nodes
