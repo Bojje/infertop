@@ -7,7 +7,7 @@ import pytest
 
 from infertop.cli import diagnosis_exit_code, main
 from infertop.collector import collect_files
-from infertop.probe import ProbeResult, ProbeTiming, RequestMetrics
+from infertop.probe import ProbeResult, ProbeRunResult, ProbeTiming, RequestMetrics
 from infertop.rules import Finding, Severity
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -224,6 +224,44 @@ def test_probe_command_prints_per_request_phase_verdict(capsys, monkeypatch) -> 
     assert "INFERTOP ACTIVE PROBE" in output
     assert "prefill" in output
     assert "Completion HTTP round trip: 125.0ms" in output
+
+
+def test_probe_count_prints_bounded_percentile_summary(capsys, monkeypatch) -> None:
+    one = ProbeResult(
+        endpoint="http://localhost:8000/v1",
+        model="model",
+        request_id="request-1",
+        prompt_tokens=4,
+        completion_tokens=2,
+        metrics=RequestMetrics(queue_time_ms=10, time_to_first_token_ms=20),
+        timing=ProbeTiming(50, None, None, None),
+        dominant_phase="prefill/TTFT",
+        verdict="TTFT dominated.",
+        evidence=("TTFT",),
+        remediations=("Inspect prompts.",),
+    )
+    result = ProbeRunResult(
+        endpoint=one.endpoint,
+        model=one.model,
+        max_tokens_per_request=8,
+        results=(one, one, one),
+    )
+    received: dict[str, object] = {}
+
+    def probe(_target: str, **kwargs: object):
+        received.update(kwargs)
+        return result
+
+    monkeypatch.setattr("infertop.cli.probe_endpoint_repeated", probe)
+
+    exit_code = main(["probe", "http://localhost:8000", "--count", "3"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert received["request_count"] == 3
+    assert "INFERTOP ACTIVE PROBE SERIES" in output
+    assert "Requests completed: 3 (hard cap: 10)" in output
+    assert "Client round trip (ms): p50 50.0; p95 50.0" in output
 
 
 def test_nvml_is_rejected_for_offline_fixture(capsys) -> None:

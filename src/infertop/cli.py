@@ -10,7 +10,13 @@ from pathlib import Path
 
 from infertop import __version__
 from infertop.collector import CollectionError, collect_endpoint, collect_file_series, collect_files
-from infertop.probe import ProbeError, probe_endpoint
+from infertop.probe import (
+    MAX_PROBE_REQUESTS,
+    MAX_PROBE_TOTAL_OUTPUT_TOKENS,
+    ProbeError,
+    probe_endpoint,
+    probe_endpoint_repeated,
+)
 from infertop.prometheus import MetricsParseError
 from infertop.prometheus_api import collect_prometheus_range, parse_range_time
 from infertop.report import render_json, render_probe_json, render_probe_text, render_text
@@ -152,6 +158,15 @@ def _parser() -> argparse.ArgumentParser:
         help="maximum output tokens, capped at 256 (default: 8)",
     )
     probe_parser.add_argument(
+        "--count",
+        type=int,
+        default=1,
+        help=(
+            f"sequential request count, capped at {MAX_PROBE_REQUESTS}; "
+            f"count x max-tokens is capped at {MAX_PROBE_TOTAL_OUTPUT_TOKENS} (default: 1)"
+        ),
+    )
+    probe_parser.add_argument(
         "--api-key-env",
         default="INFERTOP_API_KEY",
         help="environment variable containing the API key (default: INFERTOP_API_KEY)",
@@ -288,13 +303,17 @@ def _run_diagnose(args: argparse.Namespace) -> tuple[str, int]:
 
 def _run_probe(args: argparse.Namespace) -> str:
     api_key = os.environ.get(args.api_key_env)
-    result = probe_endpoint(
-        args.target,
-        model=args.model,
-        prompt=args.prompt,
-        max_tokens=args.max_tokens,
-        api_key=api_key,
-        timeout_seconds=args.timeout,
+    options = {
+        "model": args.model,
+        "prompt": args.prompt,
+        "max_tokens": args.max_tokens,
+        "api_key": api_key,
+        "timeout_seconds": args.timeout,
+    }
+    result = (
+        probe_endpoint(args.target, **options)
+        if args.count == 1
+        else probe_endpoint_repeated(args.target, request_count=args.count, **options)
     )
     return render_probe_json(result) if args.json else render_probe_text(result)
 

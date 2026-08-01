@@ -7,7 +7,7 @@ import os
 from typing import Any
 
 from infertop.collector import collect_endpoint
-from infertop.probe import probe_endpoint
+from infertop.probe import probe_endpoint, probe_endpoint_repeated
 from infertop.prometheus_api import collect_prometheus_range, parse_range_time
 from infertop.report import render_json
 from infertop.rules import diagnose
@@ -45,16 +45,23 @@ def probe_inference_endpoint_result(
     max_tokens: int = 8,
     api_key_env: str = "INFERTOP_API_KEY",
     timeout_seconds: float = 30.0,
+    repeat_count: int = 1,
 ) -> dict[str, Any]:
-    """Send one bounded generation request and return its per-request metrics."""
+    """Send one or a small bounded series and return per-request timing evidence."""
 
-    return probe_endpoint(
+    options = {
+        "model": model,
+        "prompt": prompt,
+        "max_tokens": max_tokens,
+        "api_key": os.environ.get(api_key_env),
+        "timeout_seconds": timeout_seconds,
+    }
+    if repeat_count == 1:
+        return probe_endpoint(endpoint, **options).to_dict()
+    return probe_endpoint_repeated(
         endpoint,
-        model=model,
-        prompt=prompt,
-        max_tokens=max_tokens,
-        api_key=os.environ.get(api_key_env),
-        timeout_seconds=timeout_seconds,
+        request_count=repeat_count,
+        **options,
     ).to_dict()
 
 
@@ -129,8 +136,9 @@ def create_server() -> Any:
         max_tokens: int = 8,
         api_key_env: str = "INFERTOP_API_KEY",
         timeout_seconds: float = 30.0,
+        repeat_count: int = 1,
     ) -> dict[str, Any]:
-        """Opt in to one bounded inference POST and return per-request timing evidence."""
+        """Opt in to at most ten bounded inference POSTs and return timing percentiles."""
 
         return probe_inference_endpoint_result(
             endpoint,
@@ -139,6 +147,7 @@ def create_server() -> Any:
             max_tokens=max_tokens,
             api_key_env=api_key_env,
             timeout_seconds=timeout_seconds,
+            repeat_count=repeat_count,
         )
 
     @server.tool()

@@ -8,7 +8,7 @@ from infertop.mcp_server import (
     diagnose_prometheus_range_result,
     probe_inference_endpoint_result,
 )
-from infertop.probe import ProbeResult, ProbeTiming
+from infertop.probe import ProbeResult, ProbeRunResult, ProbeTiming
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -64,6 +64,38 @@ def test_mcp_probe_wrapper_returns_structured_result(monkeypatch) -> None:
     assert payload["model"] == "model"
     assert payload["request_id"] == "request-1"
     assert payload["timing"]["client_round_trip_ms"] == 100
+
+
+def test_mcp_probe_wrapper_can_return_bounded_series(monkeypatch) -> None:
+    one = ProbeResult(
+        endpoint="http://localhost:8000/v1",
+        model="model",
+        request_id="request-1",
+        prompt_tokens=4,
+        completion_tokens=1,
+        metrics=None,
+        timing=ProbeTiming(100, None, None, None),
+        dominant_phase=None,
+        verdict="No timing metrics.",
+        evidence=("Unavailable",),
+        remediations=("Enable metrics.",),
+    )
+    result = ProbeRunResult(
+        endpoint=one.endpoint,
+        model=one.model,
+        max_tokens_per_request=8,
+        results=(one, one, one),
+    )
+    monkeypatch.setattr(
+        "infertop.mcp_server.probe_endpoint_repeated",
+        lambda *args, **kwargs: result,
+    )
+
+    payload = probe_inference_endpoint_result("http://localhost:8000", repeat_count=3)
+
+    assert payload["request_count"] == 3
+    assert payload["safety"]["requested_output_token_ceiling"] == 24
+    assert payload["percentiles"]["client_round_trip_ms"]["p95"] == 100
 
 
 def test_mcp_prometheus_wrapper_reads_token_and_parses_range(monkeypatch) -> None:

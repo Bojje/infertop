@@ -91,10 +91,13 @@ rules with equivalent evidence semantics.
 
 ## Milestone 6: request drill-down and deterministic demo
 
-- Extend the explicitly active probe with a small hard-capped repeat count and p50/p95 summaries,
+Status: the repeated probe, fixed paced-baseline/pressure/recovery traffic sequence, hard caps, and
+unit tests are implemented. Live vLLM validation and the README GIF remain pending.
+
+- [x] Extend the explicitly active probe with a small hard-capped repeat count and p50/p95 summaries,
   while keeping request count and token ceilings obvious.
-- Add a staged load scenario that transitions from healthy to saturated or thrashing and back.
-- Use that scenario to make Textual verdict transitions deterministic, then record the short README
+- [x] Add a staged load scenario that transitions from healthy to saturated or thrashing and back.
+- [ ] Use that scenario to make Textual verdict transitions deterministic, then record the short README
   GIF. Do not turn the TUI into a long-term dashboard.
 
 Exit criterion: the demo visibly reflects the same findings as report mode, and active traffic is
