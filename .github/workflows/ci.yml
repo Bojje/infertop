@@ -64,3 +64,19 @@ jobs:
       - run: uv sync --locked --extra nvml
       - run: uv run --extra nvml python -c "import pynvml"
       - run: uv run --extra nvml pytest tests/test_hardware.py
+
+  package-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv build
+      - run: uvx --from twine twine check dist/*
+      - name: Smoke-test the wheel in a clean environment
+        run: |
+          uv venv /tmp/infertop-wheel-test
+          uv pip install --python /tmp/infertop-wheel-test/bin/python dist/*.whl
+          /tmp/infertop-wheel-test/bin/infertop --version

@@ -1,8 +1,17 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build (for example, v0.2.0)
+        required: true
+        type: string
+      publish_pypi:
+        description: Publish the verified distributions to PyPI
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -12,14 +21,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --locked
+      - name: Verify exact tag and package version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*$ ]]; then
+            echo "Release tag must look like v0.2.0 or v0.2.0rc1"
+            exit 1
+          fi
+
+          PACKAGE_VERSION=$(uv run python -c \
+            "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          if [[ "$RELEASE_TAG" != "v$PACKAGE_VERSION" ]]; then
+            echo "Tag $RELEASE_TAG does not match package version $PACKAGE_VERSION"
+            exit 1
+          fi
+
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-list -n 1 "$RELEASE_TAG")" ]]; then
+            echo "Checked-out commit is not the commit referenced by $RELEASE_TAG"
+            exit 1
+          fi
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run pytest
       - run: uv build
+      - run: uvx --from twine twine check dist/*
+      - name: Smoke-test the wheel in a clean environment
+        run: |
+          uv venv /tmp/infertop-wheel-test
+          uv pip install --python /tmp/infertop-wheel-test/bin/python dist/*.whl
+          /tmp/infertop-wheel-test/bin/infertop --version
       - uses: actions/upload-artifact@v4
         with:
           name: python-distributions
           path: dist/
+          if-no-files-found: error
 
   publish:
+    if: ${{ inputs.publish_pypi }}
     needs: build
     runs-on: ubuntu-latest
     environment:
