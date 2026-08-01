@@ -31,6 +31,7 @@ SCENARIOS = (
     "decode_bound",
     "sglang_healthy",
     "sglang_thrashing",
+    "sglang_multirank",
     "sparse_vllm",
 )
 
