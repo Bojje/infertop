@@ -117,6 +117,54 @@ class GpuDeviceSnapshot:
 
 
 @dataclass(frozen=True)
+class GpuTopologyLink:
+    """Observed local connection class between a canonical pair of GPU indices."""
+
+    first_gpu: int
+    second_gpu: int
+    kind: str
+
+    def __post_init__(self) -> None:
+        if self.first_gpu < 0 or self.second_gpu < 0:
+            raise ValueError("GPU indices must be non-negative")
+        if self.first_gpu >= self.second_gpu:
+            raise ValueError("topology links must use increasing, distinct GPU indices")
+
+
+@dataclass(frozen=True)
+class GpuTopology:
+    """Engine-independent local GPU topology without inferred server membership."""
+
+    gpu_indices: tuple[int, ...]
+    links: tuple[GpuTopologyLink, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.gpu_indices:
+            raise ValueError("topology must contain at least one GPU")
+        if tuple(sorted(set(self.gpu_indices))) != self.gpu_indices:
+            raise ValueError("topology GPU indices must be unique and sorted")
+        known = set(self.gpu_indices)
+        if any(link.first_gpu not in known or link.second_gpu not in known for link in self.links):
+            raise ValueError("topology link references an unknown GPU")
+        pairs = tuple((link.first_gpu, link.second_gpu) for link in self.links)
+        if tuple(sorted(set(pairs))) != pairs:
+            raise ValueError("topology links must be unique and sorted")
+
+    def link_between(self, first_gpu: int, second_gpu: int) -> GpuTopologyLink | None:
+        """Return an observed pair link independent of caller ordering."""
+
+        first_gpu, second_gpu = sorted((first_gpu, second_gpu))
+        return next(
+            (
+                link
+                for link in self.links
+                if link.first_gpu == first_gpu and link.second_gpu == second_gpu
+            ),
+            None,
+        )
+
+
+@dataclass(frozen=True)
 class InferenceSnapshot:
     """Normalized state at one point in time."""
 
